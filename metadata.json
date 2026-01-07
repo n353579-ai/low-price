@@ -1,0 +1,7 @@
+{
+  "name": "Copy of 대한민국 최저가 돋보기",
+  "description": "카메라로 비추기만 하면 국내 모든 쇼핑몰의 최저가를 찾아주는 어르신 맞춤형 가격 비교 앱입니다.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
