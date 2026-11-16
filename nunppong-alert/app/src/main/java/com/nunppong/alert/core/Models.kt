@@ -4,6 +4,9 @@ enum class Stage { HIDDEN, S1, S2, S3 }
 
 enum class Mode { IDLE, SIM, REAL }
 
+/** 서비스를 시작한 이유 */
+enum class Reason { NONE, MANUAL, BLUETOOTH, VEHICLE }
+
 data class Camera(
     val id: Int,
     val lat: Double,

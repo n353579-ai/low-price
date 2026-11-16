@@ -19,6 +19,9 @@ object Perms {
     fun notifications(ctx: Context) =
         Build.VERSION.SDK_INT < 33 || granted(ctx, Manifest.permission.POST_NOTIFICATIONS)
 
+    fun bluetoothConnect(ctx: Context) =
+        Build.VERSION.SDK_INT < 31 || granted(ctx, Manifest.permission.BLUETOOTH_CONNECT)
+
     /** 시뮬레이션/주행 서비스를 시작하는 데 꼭 필요한 권한 */
     fun readyToRun(ctx: Context) = overlay(ctx) && fineLocation(ctx)
 }

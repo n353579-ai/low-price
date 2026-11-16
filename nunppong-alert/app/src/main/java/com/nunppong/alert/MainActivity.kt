@@ -17,6 +17,7 @@ import com.nunppong.alert.ui.*
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.nunppong.alert.vehicle.VehicleAssist.sync(this)
         setContent {
             MaterialTheme {
                 var tab by rememberSaveable { mutableIntStateOf(0) }

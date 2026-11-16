@@ -1,11 +1,13 @@
 package com.nunppong.alert.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -18,7 +20,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nunppong.alert.core.CameraRepository
+import com.nunppong.alert.bt.CdmHelper
+import com.nunppong.alert.bt.PairedDevice
 import com.nunppong.alert.core.Mode
+import com.nunppong.alert.core.Reason
+import com.nunppong.alert.service.Passenger
+import com.nunppong.alert.vehicle.VehicleAssist
 import com.nunppong.alert.core.Prefs
 import com.nunppong.alert.core.StatusRepo
 import com.nunppong.alert.service.DrivingService
@@ -42,6 +49,9 @@ fun HomeScreen(refresh: Int, goPermissions: () -> Unit) {
     val ctx = LocalContext.current
     val status by StatusRepo.status.collectAsStateWithLifecycle()
     val ready = remember(refresh) { Perms.readyToRun(ctx) }
+    val prefs = remember { Prefs(ctx) }
+    var tick by remember { mutableIntStateOf(0) }
+    val passengerActive = remember(refresh, tick, status) { prefs.isPassengerActive() }
     Page {
         Text("눈뽕 단속알림", style = MaterialTheme.typography.headlineMedium)
         Card(Modifier.fillMaxWidth()) {
@@ -49,9 +59,14 @@ fun HomeScreen(refresh: Int, goPermissions: () -> Unit) {
                 Text("현재 상태", style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.height(6.dp))
                 val text = when (status.mode) {
-                    Mode.IDLE -> "대기 중"
+                    Mode.IDLE -> if (passengerActive) "승객 모드 (${hm(prefs.passengerUntil)}까지)"
+                        else if (prefs.btAddress.isNotEmpty()) "대기 중 · 내 차 연결을 기다리는 중" else "대기 중"
                     Mode.SIM -> "시뮬레이션 · " + stageText(status)
-                    Mode.REAL -> stageText(status)
+                    Mode.REAL -> when (status.reason) {
+                        Reason.BLUETOOTH -> "내 차 연결됨 · "
+                        Reason.VEHICLE -> "차량 감지 · "
+                        else -> ""
+                    } + stageText(status)
                 }
                 Text(text, style = MaterialTheme.typography.titleLarge)
             }
@@ -73,6 +88,9 @@ fun HomeScreen(refresh: Int, goPermissions: () -> Unit) {
                 onClick = { DrivingService.stop(ctx) },
                 enabled = status.mode != Mode.IDLE,
             ) { Text("종료") }
+        }
+        OutlinedButton(onClick = { Passenger.toggle(ctx); tick++ }) {
+            Text(if (passengerActive) "승객 모드 해제 (${hm(prefs.passengerUntil)}까지 꺼짐)" else "지금은 승객 (1시간 끄기)")
         }
         val cams by StatusRepo.cameraCount.collectAsStateWithLifecycle()
         LaunchedEffect(Unit) {
@@ -117,6 +135,20 @@ fun PermissionScreen(refresh: Int, onChanged: () -> Unit) {
     val bgLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onChanged() }
     val notiLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onChanged() }
 
+    val prefs = remember { Prefs(ctx) }
+    val btOk = remember(refresh) { Perms.bluetoothConnect(ctx) }
+    val btLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onChanged() }
+    var saved by remember(refresh) { mutableStateOf(prefs.btName.ifEmpty { prefs.btAddress }) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    var picked by remember { mutableStateOf<PairedDevice?>(null) }
+    val cdmLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+        val d = picked
+        if (r.resultCode == Activity.RESULT_OK && d != null) {
+            CdmHelper.finish(ctx, d); saved = d.name; msg = "'${d.name}' 등록 완료"
+        } else msg = "등록이 취소됐어요"
+        onChanged()
+    }
+
     Page {
         Text("권한 안내", style = MaterialTheme.typography.headlineSmall)
         Text("아래 순서대로 허용해 주세요.", style = MaterialTheme.typography.bodyMedium)
@@ -134,6 +166,44 @@ fun PermissionScreen(refresh: Int, onChanged: () -> Unit) {
         PermCard(3, "알림", "동작 중임을 알리는 알림과 '지금은 승객' 버튼을 보여주기 위해 필요해요.",
             noti, "알림 허용") {
             if (Build.VERSION.SDK_INT >= 33) notiLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        // 4. 내 차 블루투스
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("4. 내 차 블루투스 선택", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    Text(if (saved.isNotEmpty()) "✅ 완료" else "⬜ 필요")
+                }
+                Text("내 차 오디오(블루투스)가 연결되면 자동으로 켜지고, 끊기면 꺼져요. 버스·택시에서는 울리지 않아요. " +
+                    "차에 타서 블루투스가 연결된 상태에서 고르면 가장 잘 등록돼요.")
+                if (saved.isNotEmpty()) Text("현재: $saved", style = MaterialTheme.typography.titleSmall)
+                if (!btOk) {
+                    Button(onClick = { btLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) }) { Text("블루투스 권한 허용") }
+                } else {
+                    val devices = remember(refresh, saved) { CdmHelper.bonded(ctx) }
+                    if (devices.isEmpty()) Text("페어링된 기기가 없어요. 폰 설정에서 차량과 먼저 페어링해 주세요.")
+                    devices.forEach { d ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = d.address.equals(prefs.btAddress, true), onClick = {
+                                picked = d
+                                if (Build.VERSION.SDK_INT < 31) {
+                                    prefs.btAddress = d.address; prefs.btName = d.name; saved = d.name; msg = "'${d.name}' 저장 완료"
+                                } else {
+                                    msg = "등록 중…"
+                                    CdmHelper.associate(ctx, d.address,
+                                        onChooser = { cdmLauncher.launch(IntentSenderRequest.Builder(it).build()) },
+                                        onError = { e ->
+                                            msg = "등록 실패: $e (차에서 블루투스가 연결된 상태로 다시 시도해 보세요)"
+                                        })
+                                }
+                            })
+                            Text(d.name)
+                        }
+                    }
+                    msg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
         }
     }
 }
@@ -163,7 +233,33 @@ fun SettingsScreen() {
                 FilterChip(selected = night == k, onClick = { night = k; prefs.nightMode = k }, label = { Text(label) })
             }
         }
-        Text("자동 시작 방식은 4단계에서 추가됩니다.", style = MaterialTheme.typography.bodySmall)
+        HorizontalDivider()
+        Text("자동 시작 방식", style = MaterialTheme.typography.titleMedium)
+        Text("기본: 내 차 블루투스 연결 → 자동 시작, 연결 끊김 → 종료" +
+            (if (prefs.btName.isNotEmpty()) "\n내 차: ${prefs.btName}" else "\n(권한 탭에서 내 차 블루투스를 선택해 주세요)"))
+
+        var assist by remember { mutableStateOf(prefs.vehicleAssist) }
+        val arLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+            if (ok) { prefs.vehicleAssist = true; assist = true; VehicleAssist.sync(ctx) }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = assist, onCheckedChange = { on ->
+                if (!on) { prefs.vehicleAssist = false; assist = false; VehicleAssist.sync(ctx) }
+                else if (VehicleAssist.hasPermission(ctx)) { prefs.vehicleAssist = true; assist = true; VehicleAssist.sync(ctx) }
+                else if (Build.VERSION.SDK_INT >= 29) arLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+            })
+            Spacer(Modifier.width(8.dp))
+            Text("블루투스 없는 차용 (보조)")
+        }
+        Text("충전기가 연결된 상태에서 차량 이동이 감지되면 시작해요. 정확도가 낮고 배터리를 더 쓸 수 있어서 기본은 꺼져 있어요.",
+            style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = {
+            try {
+                ctx.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}")))
+            } catch (_: Exception) {
+                ctx.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+        }) { Text("배터리 최적화 제외 (자동 시작이 잘 안 될 때)") }
     }
 }
 
@@ -217,3 +313,6 @@ fun SimulationScreen(refresh: Int, goPermissions: () -> Unit) {
         }
     }
 }
+
+private fun hm(ms: Long): String =
+    java.text.SimpleDateFormat("HH:mm", java.util.Locale.KOREA).format(java.util.Date(ms))

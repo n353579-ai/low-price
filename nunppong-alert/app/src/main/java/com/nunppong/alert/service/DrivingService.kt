@@ -26,6 +26,7 @@ import com.nunppong.alert.core.DetectionEngine
 import com.nunppong.alert.core.Fix
 import com.nunppong.alert.core.Mode
 import com.nunppong.alert.core.Prefs
+import com.nunppong.alert.core.Reason
 import com.nunppong.alert.core.Stage
 import com.nunppong.alert.core.Status
 import com.nunppong.alert.core.StatusRepo
@@ -37,19 +38,27 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class DrivingService : Service() {
     companion object {
         const val ACTION_START = "com.nunppong.alert.START"
+        const val ACTION_PASSENGER = "com.nunppong.alert.PASSENGER"
+        const val ACTION_RESUME = "com.nunppong.alert.RESUME"
+        const val EXTRA_REASON = "reason"
         const val ACTION_SIM = "com.nunppong.alert.SIM"
         const val ACTION_STOP = "com.nunppong.alert.STOP"
         private const val CHANNEL = "driving"
         private const val NOTI_ID = 1
 
-        fun startReal(ctx: Context) {
-            ctx.startForegroundService(Intent(ctx, DrivingService::class.java).setAction(ACTION_START))
+        fun startReal(ctx: Context, reason: Reason = Reason.MANUAL) {
+            ctx.startForegroundService(
+                Intent(ctx, DrivingService::class.java).setAction(ACTION_START).putExtra(EXTRA_REASON, reason.name)
+            )
         }
 
         fun startSim(ctx: Context) {
@@ -69,6 +78,8 @@ class DrivingService : Service() {
     private val fused by lazy { LocationServices.getFusedLocationProviderClient(this) }
     private var locationCallback: LocationCallback? = null
     private var lastSavedPos = 0L
+    private var currentReason = Reason.MANUAL
+    private var isSim = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -92,7 +103,11 @@ class DrivingService : Service() {
             return START_NOT_STICKY
         }
         when (intent?.action) {
-            ACTION_START -> startReal()
+            ACTION_START -> startReal(
+                runCatching { Reason.valueOf(intent?.getStringExtra(EXTRA_REASON) ?: "") }.getOrDefault(Reason.MANUAL)
+            )
+            ACTION_PASSENGER -> if (!isSim) enterPassenger() else Unit
+            ACTION_RESUME -> if (!isSim) startReal(currentReason) else Unit
             ACTION_SIM -> startSim()
             else -> stopSelf()
         }
@@ -126,6 +141,18 @@ class DrivingService : Service() {
             .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
+            .apply {
+                if (!isSim) {
+                    val passenger = prefs.isPassengerActive()
+                    val pi = PendingIntent.getService(
+                        this@DrivingService, 2,
+                        Intent(this@DrivingService, DrivingService::class.java)
+                            .setAction(if (passenger) ACTION_RESUME else ACTION_PASSENGER),
+                        PendingIntent.FLAG_IMMUTABLE
+                    )
+                    addAction(Notification.Action.Builder(null, if (passenger) "승객 모드 해제" else "지금은 승객(1시간 끄기)", pi).build())
+                }
+            }
             .addAction(Notification.Action.Builder(null, "종료", stop).build())
             .build()
     }
@@ -137,9 +164,18 @@ class DrivingService : Service() {
     }
 
     // ---- 실제 주행: GPS 1초 간격 -> 판단 엔진 -> 오버레이 ----
-    private fun startReal() {
+    private fun startReal(reason: Reason) {
+        isSim = false
+        if (reason == Reason.MANUAL) {
+            prefs.passengerUntil = 0L                     // 직접 시작하면 승객 모드 해제
+        } else if (prefs.isPassengerActive()) {
+            stopSelf()                                    // 자동 시작인데 승객 모드면 시작하지 않는다
+            return
+        }
+        currentReason = reason
         stopWork()
-        StatusRepo.status.value = Status(Mode.REAL)
+        lastNotiText = ""
+        StatusRepo.status.value = Status(Mode.REAL, reason = reason)
         updateNotification("주행 중 · 앞쪽 단속 없음")
         job = scope.launch {
             val grid = withContext(Dispatchers.Default) { CameraRepository.load(this@DrivingService) }
@@ -156,7 +192,7 @@ class DrivingService : Service() {
                         )
                         val o = engine.update(fix)
                         overlay.update(o.stage, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness)
-                        val st = Status(Mode.REAL, o.stage, o.distanceM?.toInt(), o.speedKmh.toInt(), o.overspeed)
+                        val st = Status(Mode.REAL, o.stage, o.distanceM?.toInt(), o.speedKmh.toInt(), o.overspeed, currentReason)
                         StatusRepo.status.value = st
                         updateNotification("주행 중 · " + stageText(st))
                         if (fix.timeMs - lastSavedPos > 60_000) { // 낮/밤 계산용으로 마지막 위치 저장
@@ -180,6 +216,22 @@ class DrivingService : Service() {
         }
     }
 
+    /** 승객 모드: 위치 수집과 오버레이를 멈추고 1시간 뒤 자동 재개 */
+    private fun enterPassenger() {
+        if (!prefs.isPassengerActive()) prefs.passengerUntil = System.currentTimeMillis() + Passenger.DURATION_MS
+        stopWork()
+        overlay.update(Stage.HIDDEN, false, false, 1f, 1f)
+        val until = prefs.passengerUntil
+        StatusRepo.status.value = Status(Mode.REAL, reason = currentReason, passengerUntil = until)
+        lastNotiText = ""
+        updateNotification("승객 모드 · " + SimpleDateFormat("HH:mm", Locale.KOREA).format(Date(until)) + "까지 꺼짐")
+        job = scope.launch {
+            delay((until - System.currentTimeMillis()).coerceAtLeast(0L))
+            prefs.passengerUntil = 0L
+            startReal(currentReason)
+        }
+    }
+
     private fun stopWork() {
         job?.cancel()
         locationCallback?.let { fused.removeLocationUpdates(it) }
@@ -188,6 +240,7 @@ class DrivingService : Service() {
 
     // ---- 시뮬레이션: 1.5km 앞에서 출발해 카메라를 지나간다 ----
     private fun startSim() {
+        isSim = true
         stopWork()
         job = scope.launch {
             var dist = 1500.0
@@ -225,6 +278,9 @@ class DrivingService : Service() {
 }
 
 fun stageText(s: Status): String {
+    if (s.passengerUntil > 0) {
+        return "승객 모드 (" + SimpleDateFormat("HH:mm", Locale.KOREA).format(Date(s.passengerUntil)) + "까지)"
+    }
     val d = s.distanceM?.let { " · ${it}m" } ?: ""
     return when (s.stage) {
         Stage.HIDDEN -> "앞쪽 단속 없음"

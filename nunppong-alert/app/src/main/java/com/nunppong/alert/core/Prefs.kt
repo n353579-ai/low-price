@@ -32,4 +32,25 @@ class Prefs(context: Context) {
         "off" -> false
         else -> SunCalc.isNight(lastLat, lastLon, nowMs)
     }
+
+    /** 내 차로 등록한 블루투스 기기 */
+    var btAddress: String
+        get() = sp.getString("btAddress", "") ?: ""
+        set(v) = sp.edit().putString("btAddress", v).apply()
+
+    var btName: String
+        get() = sp.getString("btName", "") ?: ""
+        set(v) = sp.edit().putString("btName", v).apply()
+
+    /** 보조 옵션(기본 꺼짐): 충전 연결 + 차량 이동 감지로 시작 */
+    var vehicleAssist: Boolean
+        get() = sp.getBoolean("vehicleAssist", false)
+        set(v) = sp.edit().putBoolean("vehicleAssist", v).apply()
+
+    /** 승객 모드 해제 시각 (epoch ms, 0 = 꺼짐) */
+    var passengerUntil: Long
+        get() = sp.getLong("passengerUntil", 0L)
+        set(v) = sp.edit().putLong("passengerUntil", v).apply()
+
+    fun isPassengerActive(now: Long = System.currentTimeMillis()) = passengerUntil > now
 }

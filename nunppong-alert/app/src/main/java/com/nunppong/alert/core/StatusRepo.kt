@@ -8,6 +8,9 @@ data class Status(
     val distanceM: Int? = null,
     val speedKmh: Int = 0,
     val overspeed: Boolean = false,
+    val reason: Reason = Reason.NONE,
+    /** 0이 아니면 승객 모드 중 (해제 시각, epoch ms) */
+    val passengerUntil: Long = 0L,
 )
 
 /** 서비스 ↔ UI 사이의 상태 공유 (같은 프로세스). */
