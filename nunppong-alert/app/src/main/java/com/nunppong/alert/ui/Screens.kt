@@ -17,12 +17,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nunppong.alert.core.CameraRepository
 import com.nunppong.alert.core.Mode
 import com.nunppong.alert.core.Prefs
 import com.nunppong.alert.core.StatusRepo
 import com.nunppong.alert.service.DrivingService
 import com.nunppong.alert.service.stageText
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 private fun Page(content: @Composable ColumnScope.() -> Unit) {
@@ -62,11 +65,28 @@ fun HomeScreen(refresh: Int, goPermissions: () -> Unit) {
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = {}, enabled = false) { Text("수동 시작") }
-            OutlinedButton(onClick = {}, enabled = false) { Text("종료") }
+            Button(
+                onClick = { DrivingService.startReal(ctx) },
+                enabled = ready && status.mode != Mode.REAL,
+            ) { Text("수동 시작") }
+            OutlinedButton(
+                onClick = { DrivingService.stop(ctx) },
+                enabled = status.mode != Mode.IDLE,
+            ) { Text("종료") }
         }
-        Text("실제 주행 시작/종료는 다음 단계에서 활성화됩니다. 지금은 '시뮬레이션' 탭에서 테두리를 확인하세요.",
-            style = MaterialTheme.typography.bodySmall)
+        val cams by StatusRepo.cameraCount.collectAsStateWithLifecycle()
+        LaunchedEffect(Unit) {
+            val g = withContext(Dispatchers.Default) { CameraRepository.load(ctx) }
+            StatusRepo.cameraCount.value = g.count
+        }
+        Text(
+            when (cams) {
+                null -> "단속카메라 데이터 확인 중…"
+                0 -> "⚠ 단속카메라 데이터가 비어 있어요. 저장소의 nunppong-alert/data/ 폴더에 공공데이터 CSV를 올리면 빌드 때 자동 반영돼요."
+                else -> "단속카메라 ${cams}개 로드됨 (오프라인)"
+            },
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 

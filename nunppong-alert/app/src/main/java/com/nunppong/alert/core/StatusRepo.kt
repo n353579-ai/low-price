@@ -14,6 +14,9 @@ data class Status(
 object StatusRepo {
     val status = MutableStateFlow(Status())
 
+    /** 로드된 단속카메라 수 (null = 아직 안 읽음) */
+    val cameraCount = MutableStateFlow<Int?>(null)
+
     // 시뮬레이션 조작값 (UI가 쓰고 서비스가 읽는다)
     val simSpeedKmh = MutableStateFlow(80)
     val simLimitKmh = MutableStateFlow(80)

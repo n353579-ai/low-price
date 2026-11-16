@@ -10,10 +10,20 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.nunppong.alert.MainActivity
 import com.nunppong.alert.R
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.nunppong.alert.core.AlertStyle
+import com.nunppong.alert.core.CameraRepository
+import com.nunppong.alert.core.DetectionEngine
+import com.nunppong.alert.core.Fix
 import com.nunppong.alert.core.Mode
 import com.nunppong.alert.core.Prefs
 import com.nunppong.alert.core.Stage
@@ -26,15 +36,21 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class DrivingService : Service() {
     companion object {
+        const val ACTION_START = "com.nunppong.alert.START"
         const val ACTION_SIM = "com.nunppong.alert.SIM"
         const val ACTION_STOP = "com.nunppong.alert.STOP"
         private const val CHANNEL = "driving"
         private const val NOTI_ID = 1
+
+        fun startReal(ctx: Context) {
+            ctx.startForegroundService(Intent(ctx, DrivingService::class.java).setAction(ACTION_START))
+        }
 
         fun startSim(ctx: Context) {
             ctx.startForegroundService(Intent(ctx, DrivingService::class.java).setAction(ACTION_SIM))
@@ -50,6 +66,9 @@ class DrivingService : Service() {
     private lateinit var overlay: OverlayController
     private lateinit var prefs: Prefs
     private var lastNotiText = ""
+    private val fused by lazy { LocationServices.getFusedLocationProviderClient(this) }
+    private var locationCallback: LocationCallback? = null
+    private var lastSavedPos = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -73,6 +92,7 @@ class DrivingService : Service() {
             return START_NOT_STICKY
         }
         when (intent?.action) {
+            ACTION_START -> startReal()
             ACTION_SIM -> startSim()
             else -> stopSelf()
         }
@@ -116,9 +136,59 @@ class DrivingService : Service() {
         getSystemService(NotificationManager::class.java).notify(NOTI_ID, buildNotification(text))
     }
 
+    // ---- 실제 주행: GPS 1초 간격 -> 판단 엔진 -> 오버레이 ----
+    private fun startReal() {
+        stopWork()
+        StatusRepo.status.value = Status(Mode.REAL)
+        updateNotification("주행 중 · 앞쪽 단속 없음")
+        job = scope.launch {
+            val grid = withContext(Dispatchers.Default) { CameraRepository.load(this@DrivingService) }
+            StatusRepo.cameraCount.value = grid.count
+            val engine = DetectionEngine(grid)
+            val cb = object : LocationCallback() {
+                override fun onLocationResult(result: LocationResult) {
+                    for (loc in result.locations) {
+                        val fix = Fix(
+                            loc.latitude, loc.longitude,
+                            if (loc.hasSpeed()) loc.speed else 0f,
+                            loc.bearing, loc.hasBearing(),
+                            SystemClock.elapsedRealtime(),
+                        )
+                        val o = engine.update(fix)
+                        overlay.update(o.stage, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness)
+                        val st = Status(Mode.REAL, o.stage, o.distanceM?.toInt(), o.speedKmh.toInt(), o.overspeed)
+                        StatusRepo.status.value = st
+                        updateNotification("주행 중 · " + stageText(st))
+                        if (fix.timeMs - lastSavedPos > 60_000) { // 낮/밤 계산용으로 마지막 위치 저장
+                            lastSavedPos = fix.timeMs
+                            prefs.lastLat = loc.latitude
+                            prefs.lastLon = loc.longitude
+                        }
+                    }
+                }
+            }
+            locationCallback = cb
+            val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L)
+                .setMinUpdateIntervalMillis(1000L)
+                .build()
+            try {
+                fused.requestLocationUpdates(req, cb, Looper.getMainLooper())
+            } catch (e: SecurityException) {
+                Log.e("DrivingService", "no location permission", e)
+                stopSelf()
+            }
+        }
+    }
+
+    private fun stopWork() {
+        job?.cancel()
+        locationCallback?.let { fused.removeLocationUpdates(it) }
+        locationCallback = null
+    }
+
     // ---- 시뮬레이션: 1.5km 앞에서 출발해 카메라를 지나간다 ----
     private fun startSim() {
-        job?.cancel()
+        stopWork()
         job = scope.launch {
             var dist = 1500.0
             while (isActive) {
@@ -146,7 +216,7 @@ class DrivingService : Service() {
     }
 
     override fun onDestroy() {
-        job?.cancel()
+        stopWork()
         scope.cancel()
         overlay.remove()
         StatusRepo.status.value = Status()
