@@ -14,7 +14,10 @@ class OverlayController(context: Context) {
     private val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private var view: BorderOverlayView? = null
 
-    fun update(stage: Stage, overspeed: Boolean, night: Boolean, brightness: Float, thickness: Float) {
+    fun update(
+        stage: Stage, overspeed: Boolean, night: Boolean, brightness: Float, thickness: Float,
+        sidesOnly: Boolean = false,
+    ) {
         if (view == null) {
             if (stage == Stage.HIDDEN || !Settings.canDrawOverlays(ctx)) return
             val v = BorderOverlayView(ctx)
@@ -26,7 +29,7 @@ class OverlayController(context: Context) {
                 return
             }
         }
-        view?.setState(stage, overspeed, night, brightness, thickness)
+        view?.setState(stage, overspeed, night, brightness, thickness, sidesOnly)
     }
 
     fun remove() {

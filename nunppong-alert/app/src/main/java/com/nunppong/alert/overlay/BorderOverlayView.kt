@@ -16,9 +16,11 @@ class BorderOverlayView(context: Context) : View(context) {
     private var night = false
     private var brightness = 1f
     private var thickness = 1f
+    private var sidesOnly = false
     private var lastPhase: AlertStyle.Phase? = null
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -31,7 +33,11 @@ class BorderOverlayView(context: Context) : View(context) {
         }
     }
 
-    fun setState(stage: Stage, overspeed: Boolean, night: Boolean, brightness: Float, thickness: Float) {
+    fun setState(
+        stage: Stage, overspeed: Boolean, night: Boolean, brightness: Float, thickness: Float,
+        sidesOnly: Boolean = false,
+    ) {
+        this.sidesOnly = sidesOnly
         this.stage = stage
         this.overspeed = overspeed
         this.night = night
@@ -60,6 +66,11 @@ class BorderOverlayView(context: Context) : View(context) {
         val wf = width.toFloat()
         val hf = height.toFloat()
 
+        if (sidesOnly) {
+            drawSides(canvas, base, alphaScale, w, wf, hf)
+            return
+        }
+
         // 1) 단색 테두리 띠
         paint.color = base
         paint.alpha = (255 * alphaScale).toInt().coerceIn(0, 255)
@@ -77,6 +88,24 @@ class BorderOverlayView(context: Context) : View(context) {
             paint.alpha = (255 * alphaScale * a).toInt().coerceIn(0, 255)
             paint.strokeWidth = step + 0.5f
             canvas.drawRect(inset, inset, wf - inset, hf - inset, paint)
+        }
+    }
+
+    /** 화면 좌우 가장자리만: 단색 띠 + 안쪽으로 번지는 글로우 */
+    private fun drawSides(canvas: Canvas, base: Int, alphaScale: Float, w: Float, wf: Float, hf: Float) {
+        fill.color = base
+        fill.alpha = (255 * alphaScale).toInt().coerceIn(0, 255)
+        canvas.drawRect(0f, 0f, w, hf, fill)
+        canvas.drawRect(wf - w, 0f, wf, hf, fill)
+        val glow = w * 1.6f
+        val n = 8
+        val step = glow / n
+        for (i in 0 until n) {
+            val a = 0.55f * (1f - i.toFloat() / n).pow(2)
+            fill.alpha = (255 * alphaScale * a).toInt().coerceIn(0, 255)
+            val x = w + step * i
+            canvas.drawRect(x, 0f, x + step + 0.5f, hf, fill)
+            canvas.drawRect(wf - x - step - 0.5f, 0f, wf - x, hf, fill)
         }
     }
 }

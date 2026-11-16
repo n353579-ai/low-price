@@ -227,6 +227,14 @@ fun SettingsScreen() {
         Text("테두리 두께  ${base.roundToInt()}dp (과속 시 ${(20f * thickness).roundToInt()}dp)")
         Slider(value = thickness, onValueChange = { thickness = it; prefs.thickness = it }, valueRange = 0.7f..1.5f)
 
+        var edge by remember { mutableStateOf(prefs.edgeMode) }
+        Text("표시 위치")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("sides" to "화면 좌우", "all" to "사방 테두리").forEach { (k, label) ->
+                FilterChip(selected = edge == k, onClick = { edge = k; prefs.edgeMode = k }, label = { Text(label) })
+            }
+        }
+
         Text("밤 모드 (밤에는 색을 어둡게, 전체 밝기 65%)")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("auto" to "자동(일몰~일출)", "on" to "항상 켬", "off" to "끔").forEach { (k, label) ->

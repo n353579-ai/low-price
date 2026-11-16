@@ -14,6 +14,13 @@ class Prefs(context: Context) {
         get() = sp.getFloat("thickness", 1f)
         set(v) = sp.edit().putFloat("thickness", v).apply()
 
+    /** "sides" = 화면 좌우만, "all" = 사방 테두리 */
+    var edgeMode: String
+        get() = sp.getString("edgeMode", "sides") ?: "sides"
+        set(v) = sp.edit().putString("edgeMode", v).apply()
+
+    val sidesOnly: Boolean get() = edgeMode == "sides"
+
     /** "auto" | "on" | "off" */
     var nightMode: String
         get() = sp.getString("nightMode", "auto") ?: "auto"
