@@ -49,13 +49,19 @@ def first_int(s, default):
     return int(m.group()) if m else default
 
 
-def is_speed_kind(text):
-    t = text.strip()
-    if not t:
-        return False
-    if "과속" in t or "속도" in t:
-        return True
-    return t in ("1", "3")  # 코드값: 1=속도위반, 3=속도+신호위반 (파일마다 다를 수 있음)
+def kind_parts(text):
+    """'01+02' -> ['1','2'], '4' -> ['4'] (앞자리 0 제거)"""
+    return [p.strip().lstrip("0") or "0" for p in re.split(r"[+,/]", text) if p.strip()]
+
+
+def is_speed_row(kind, limit):
+    """실제 표준데이터 분석 결과(단속구분 코드가 1/01/1+2 처럼 섞여 있음):
+    - 제한속도가 있는 행은 과속 단속으로 본다. 단, 주정차 전용(4)은 제외.
+    - 제한속도가 없는 행은 단속구분이 '1'(과속)이거나 글자로 과속/속도일 때만."""
+    parts = kind_parts(kind)
+    if limit > 0:
+        return parts != ["4"]
+    return "1" in parts or "과속" in kind or "속도" in kind
 
 
 def main(argv):
@@ -77,9 +83,6 @@ def main(argv):
     if c_lat is None or c_lon is None:
         print("위도/경도 컬럼을 찾지 못했습니다. 헤더:", header)
         return 1
-    if c_kind is None and not keep_all:
-        print("경고: 단속구분 컬럼이 없어 모든 행을 사용합니다.")
-        keep_all = True
 
     seen = {}
     stats = dict(rows=0, no_coord=0, out_of_range=0, not_speed=0, dup=0)
@@ -100,10 +103,11 @@ def main(argv):
             else:
                 stats["out_of_range"] += 1
                 continue
-        if not keep_all and c_kind is not None and not is_speed_kind(r[c_kind] if c_kind < len(r) else ""):
+        limit = first_int(r[c_lim], 0) if c_lim is not None and c_lim < len(r) else 0
+        kind = r[c_kind] if c_kind is not None and c_kind < len(r) else ""
+        if not keep_all and not is_speed_row(kind, limit):
             stats["not_speed"] += 1
             continue
-        limit = first_int(r[c_lim], 0) if c_lim is not None and c_lim < len(r) else 0
         brg = -1
         if c_brg is not None and c_brg < len(r):
             b = to_float(r[c_brg])
