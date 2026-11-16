@@ -224,8 +224,8 @@ fun SettingsScreen() {
         Slider(value = brightness, onValueChange = { brightness = it; prefs.brightness = it }, valueRange = 0.3f..1f)
 
         val base = 12f * thickness
-        Text("테두리 두께  ${base.roundToInt()}dp (과속 시 ${(20f * thickness).roundToInt()}dp)")
-        Slider(value = thickness, onValueChange = { thickness = it; prefs.thickness = it }, valueRange = 0.7f..1.5f)
+        Text("테두리 두께  ${base.roundToInt()}dp (과속 시 ${(20f * thickness).roundToInt()}dp) · 잘 안 보이면 올려 보세요")
+        Slider(value = thickness, onValueChange = { thickness = it; prefs.thickness = it }, valueRange = 0.7f..2.0f)
 
         var edge by remember { mutableStateOf(prefs.edgeMode) }
         Text("표시 위치")
