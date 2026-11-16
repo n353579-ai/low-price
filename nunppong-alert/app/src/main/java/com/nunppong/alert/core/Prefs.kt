@@ -19,6 +19,16 @@ class Prefs(context: Context) {
         get() = sp.getString("edgeMode", "sides") ?: "sides"
         set(v) = sp.edit().putString("edgeMode", v).apply()
 
+    /** 약한 단계(1km, 500m 첫 색)에 쓰는 색 — 기본 노랑 */
+    var yellowColor: Int
+        get() = sp.getInt("yellowColor", AlertStyle.YELLOW_DAY)
+        set(v) = sp.edit().putInt("yellowColor", v).apply()
+
+    /** 임박 단계(300m 안, 500m 둘째 색)에 쓰는 색 — 기본 빨강 */
+    var redColor: Int
+        get() = sp.getInt("redColor", AlertStyle.RED_DAY)
+        set(v) = sp.edit().putInt("redColor", v).apply()
+
     val sidesOnly: Boolean get() = edgeMode == "sides"
 
     /** "auto" | "on" | "off" */

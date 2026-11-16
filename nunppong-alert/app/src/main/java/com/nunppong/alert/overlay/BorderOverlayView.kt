@@ -17,6 +17,8 @@ class BorderOverlayView(context: Context) : View(context) {
     private var brightness = 1f
     private var thickness = 1f
     private var sidesOnly = false
+    private var yellow = AlertStyle.YELLOW_DAY
+    private var red = AlertStyle.RED_DAY
     private var lastPhase: AlertStyle.Phase? = null
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
@@ -35,9 +37,11 @@ class BorderOverlayView(context: Context) : View(context) {
 
     fun setState(
         stage: Stage, overspeed: Boolean, night: Boolean, brightness: Float, thickness: Float,
-        sidesOnly: Boolean = false,
+        sidesOnly: Boolean = false, yellow: Int = AlertStyle.YELLOW_DAY, red: Int = AlertStyle.RED_DAY,
     ) {
         this.sidesOnly = sidesOnly
+        this.yellow = yellow
+        this.red = red
         this.stage = stage
         this.overspeed = overspeed
         this.night = night
@@ -60,7 +64,7 @@ class BorderOverlayView(context: Context) : View(context) {
         val phase = AlertStyle.phase(stage, SystemClock.uptimeMillis())
         if (phase == AlertStyle.Phase.OFF) return
 
-        val base = AlertStyle.color(phase, night)
+        val base = AlertStyle.color(phase, night, yellow, red)
         val alphaScale = brightness * (if (night) AlertStyle.NIGHT_FACTOR else 1f)
         val w = AlertStyle.widthDp(stage, overspeed) * thickness * resources.displayMetrics.density
         val wf = width.toFloat()

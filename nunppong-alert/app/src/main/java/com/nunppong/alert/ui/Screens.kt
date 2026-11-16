@@ -9,7 +9,13 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -235,6 +241,19 @@ fun SettingsScreen() {
             }
         }
 
+        var yellow by remember { mutableIntStateOf(prefs.yellowColor) }
+        var red by remember { mutableIntStateOf(prefs.redColor) }
+        Text("경고 색 ① 멀리 (1km~500m)")
+        ColorRow(listOf(0xFFFFC400, 0xFFC6FF00, 0xFFFF8A00, 0xFF00E5FF, 0xFFFFFFFF), yellow) { yellow = it; prefs.yellowColor = it }
+        Text("경고 색 ② 임박 (300m 안)")
+        ColorRow(listOf(0xFFFF2A1A, 0xFFFF2D95, 0xFFFF6D00, 0xFFB388FF, 0xFFFFFFFF), red) { red = it; prefs.redColor = it }
+        OutlinedButton(onClick = {
+            yellow = 0xFFFFC400.toInt(); red = 0xFFFF2A1A.toInt()
+            prefs.yellowColor = yellow; prefs.redColor = red
+        }) { Text("색 기본값으로 (노랑/빨강)") }
+        Text("바꾼 색은 시뮬 탭에서 바로 확인할 수 있어요. 시뮬레이션이 켜져 있으면 곧바로 반영돼요.",
+            style = MaterialTheme.typography.bodySmall)
+
         Text("밤 모드 (밤에는 색을 어둡게, 전체 밝기 65%)")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("auto" to "자동(일몰~일출)", "on" to "항상 켬", "off" to "끔").forEach { (k, label) ->
@@ -324,3 +343,18 @@ fun SimulationScreen(refresh: Int, goPermissions: () -> Unit) {
 
 private fun hm(ms: Long): String =
     java.text.SimpleDateFormat("HH:mm", java.util.Locale.KOREA).format(java.util.Date(ms))
+
+@Composable
+private fun ColorRow(colors: List<Long>, selected: Int, onPick: (Int) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        colors.forEach { c ->
+            val argb = c.toInt()
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).background(Color(argb))
+                    .border(if (argb == selected) 4.dp else 1.dp,
+                        if (argb == selected) Color.Black else Color.Gray, CircleShape)
+                    .clickable { onPick(argb) }
+            )
+        }
+    }
+}

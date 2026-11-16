@@ -7,6 +7,7 @@ import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
+import com.nunppong.alert.core.AlertStyle
 import com.nunppong.alert.core.Stage
 
 class OverlayController(context: Context) {
@@ -16,7 +17,7 @@ class OverlayController(context: Context) {
 
     fun update(
         stage: Stage, overspeed: Boolean, night: Boolean, brightness: Float, thickness: Float,
-        sidesOnly: Boolean = false,
+        sidesOnly: Boolean = false, yellow: Int = AlertStyle.YELLOW_DAY, red: Int = AlertStyle.RED_DAY,
     ) {
         if (view == null) {
             if (stage == Stage.HIDDEN || !Settings.canDrawOverlays(ctx)) return
@@ -29,7 +30,7 @@ class OverlayController(context: Context) {
                 return
             }
         }
-        view?.setState(stage, overspeed, night, brightness, thickness, sidesOnly)
+        view?.setState(stage, overspeed, night, brightness, thickness, sidesOnly, yellow, red)
     }
 
     fun remove() {

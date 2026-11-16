@@ -191,7 +191,7 @@ class DrivingService : Service() {
                             SystemClock.elapsedRealtime(),
                         )
                         val o = engine.update(fix)
-                        overlay.update(o.stage, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly)
+                        overlay.update(o.stage, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor)
                         val st = Status(Mode.REAL, o.stage, o.distanceM?.toInt(), o.speedKmh.toInt(), o.overspeed, currentReason)
                         StatusRepo.status.value = st
                         updateNotification("주행 중 · " + stageText(st))
@@ -252,7 +252,7 @@ class DrivingService : Service() {
 
                 val stage = AlertStyle.stageForDistance(dist)
                 val over = stage == Stage.S3 && speed > limit
-                overlay.update(stage, over, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly)
+                overlay.update(stage, over, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor)
 
                 val st = Status(Mode.SIM, stage, if (dist >= 0) dist.toInt() else null, speed, over)
                 StatusRepo.status.value = st
