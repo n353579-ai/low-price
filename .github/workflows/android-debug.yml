@@ -24,8 +24,6 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
-
       - uses: gradle/actions/setup-gradle@v4
 
       # data/ 폴더에 공공데이터 CSV를 올려두면 빌드 때 자동으로 단속카메라 DB를 다시 만든다.
