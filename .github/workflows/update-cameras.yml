@@ -8,6 +8,7 @@ on:
     paths:
       - ".github/workflows/update-cameras.yml"
       - "nunppong-alert/tools/fetch_cameras.py"
+      - "nunppong-alert/tools/convert_cameras.py"
 
 permissions:
   contents: write
