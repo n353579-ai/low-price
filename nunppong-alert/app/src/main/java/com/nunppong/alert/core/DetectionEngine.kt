@@ -20,6 +20,8 @@ class DetectionEngine(
         const val MIN_SPEED_KMH = 10.0
         const val MAX_ANGLE = 30.0
         const val PASS_RADIUS_M = 50.0
+        /** 통과 판정 여유: GPS 흔들림(몇 m)으로 거리가 잠깐 늘어도 통과로 보지 않는다 */
+        const val PASS_MARGIN_M = 5.0
         const val IGNORE_MS = 30_000L
         const val SPEED_WINDOW_MS = 3_000L
     }
@@ -74,7 +76,7 @@ class DetectionEngine(
             val wasInside = inside50.contains(c.id)
 
             // 6) 통과 처리: 50m 안에 들어온 뒤 거리가 다시 늘면 30초 무시
-            if (inside50.contains(c.id) && prev != null && d > prev) {
+            if (inside50.contains(c.id) && prev != null && d > prev + PASS_MARGIN_M) {
                 inside50.remove(c.id)
                 ignoreUntil[c.id] = now + IGNORE_MS
                 passed = PassEvent(c, heading)
@@ -98,6 +100,7 @@ class DetectionEngine(
             }
         }
         lastDist = newDist
+        inside50.retainAll(newDist.keys)   // 격자를 벗어난 카메라는 목록에서 정리
 
         val raw = if (best != null) AlertStyle.stageForDistance(bestD) else Stage.HIDDEN
 

@@ -232,6 +232,7 @@ class DrivingService : Service() {
     }
 
     private var wakeStage = Stage.HIDDEN
+    private var lastWakeAt = 0L
 
     /** 화면이 꺼진 채로 단속 구간에 새로 가까워지면(숨김→1km 등 단계 상승) 화면을 5초 켠다. */
     @Suppress("DEPRECATION")
@@ -241,6 +242,9 @@ class DrivingService : Service() {
         if (!rose || !prefs.wakeScreen) return
         val pm = getSystemService(PowerManager::class.java)
         if (pm.isInteractive) return
+        val nowMs = SystemClock.elapsedRealtime()
+        if (nowMs - lastWakeAt < 60_000L) return   // 카메라가 연달아 있어도 1분에 한 번만 (배터리)
+        lastWakeAt = nowMs
         try {
             pm.newWakeLock(
                 PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
