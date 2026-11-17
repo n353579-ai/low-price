@@ -36,9 +36,9 @@ class AlertStyleTest {
     }
 
     @Test fun widths() {
-        assertEquals(12f, AlertStyle.widthDp(Stage.S3, false), 0f)
-        assertEquals(20f, AlertStyle.widthDp(Stage.S3, true), 0f)
-        assertEquals(12f, AlertStyle.widthDp(Stage.S2, true), 0f)
+        assertEquals(10f, AlertStyle.widthDp(Stage.S3, false), 0f)
+        assertEquals(30f, AlertStyle.widthDp(Stage.S3, true), 0f)
+        assertEquals(10f, AlertStyle.widthDp(Stage.S2, true), 0f)
     }
 
     @Test fun sunSeoul() {

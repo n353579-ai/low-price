@@ -31,4 +31,6 @@ data class EngineOutput(
     val overspeed: Boolean,
     val distanceM: Double?,
     val speedKmh: Double,
+    /** 가장 가까운 카메라의 제한속도 (모르면 0) */
+    val limit: Int = 0,
 )

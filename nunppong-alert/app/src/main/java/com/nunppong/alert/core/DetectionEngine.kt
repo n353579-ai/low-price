@@ -107,7 +107,7 @@ class DetectionEngine(private val source: CameraSource) {
         }
 
         val over = confirmed == Stage.S3 && best != null && best.limit > 0 && avg > best.limit
-        last = EngineOutput(confirmed, over, if (best != null) bestD else null, avg)
+        last = EngineOutput(confirmed, over, if (best != null) bestD else null, avg, best?.limit ?: 0)
         return last
     }
 }

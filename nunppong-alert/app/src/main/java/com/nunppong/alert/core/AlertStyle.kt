@@ -42,7 +42,7 @@ object AlertStyle {
     }
 
     fun widthDp(stage: Stage, overspeed: Boolean): Float =
-        if (stage == Stage.S3 && overspeed) 20f else 12f
+        if (stage == Stage.S3 && overspeed) 30f else 10f
 
     /** 밤에는 어둡게. 기본 색은 규칙의 밤 색을 그대로, 사용자가 고른 색은 70%로 어둡게. */
     private fun nightOf(c: Int, defDay: Int, defNight: Int): Int {

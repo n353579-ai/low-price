@@ -229,9 +229,18 @@ fun SettingsScreen() {
         Text("밝기  ${(brightness * 100).roundToInt()}%")
         Slider(value = brightness, onValueChange = { brightness = it; prefs.brightness = it }, valueRange = 0.3f..1f)
 
-        val base = 12f * thickness
-        Text("테두리 두께  ${base.roundToInt()}dp (과속 시 ${(20f * thickness).roundToInt()}dp) · 잘 안 보이면 올려 보세요")
+        val base = 10f * thickness
+        Text("테두리 두께  ${base.roundToInt()}dp (과속 시 ${(30f * thickness).roundToInt()}dp) · 잘 안 보이면 올려 보세요")
         Slider(value = thickness, onValueChange = { thickness = it; prefs.thickness = it }, valueRange = 0.7f..2.0f)
+
+        var overOnly by remember { mutableStateOf(prefs.overspeedOnly) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = overOnly, onCheckedChange = { overOnly = it; prefs.overspeedOnly = it })
+            Spacer(Modifier.width(8.dp))
+            Text("제한속도를 5km/h 넘을 때만 경고")
+        }
+        Text("끄면(기본) 단속카메라가 앞에 있을 때 항상 경고해요. 켜면 규정속도로 갈 때는 조용해요. 제한속도를 모르는 카메라는 항상 경고해요.",
+            style = MaterialTheme.typography.bodySmall)
 
         var edge by remember { mutableStateOf(prefs.edgeMode) }
         Text("표시 위치")
@@ -328,7 +337,7 @@ fun SimulationScreen(refresh: Int, goPermissions: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Text("3배속 (빨리 보기)")
         }
-        Text("300m 안에서 제한속도를 넘으면 테두리가 20dp로 두꺼워져요.", style = MaterialTheme.typography.bodySmall)
+        Text("300m 안에서 제한속도를 넘으면 테두리가 30dp로 두꺼워져요.", style = MaterialTheme.typography.bodySmall)
 
         if (!ready) {
             Text("먼저 '권한' 탭에서 다른 앱 위 표시와 위치 권한을 허용해 주세요.")

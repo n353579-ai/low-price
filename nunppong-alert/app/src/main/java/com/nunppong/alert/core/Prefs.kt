@@ -29,6 +29,11 @@ class Prefs(context: Context) {
         get() = sp.getInt("redColor", AlertStyle.RED_DAY)
         set(v) = sp.edit().putInt("redColor", v).apply()
 
+    /** true = 제한속도 +5km/h 를 넘을 때만 경고 (제한속도를 모르는 카메라는 항상 경고) */
+    var overspeedOnly: Boolean
+        get() = sp.getBoolean("overspeedOnly", false)
+        set(v) = sp.edit().putBoolean("overspeedOnly", v).apply()
+
     val sidesOnly: Boolean get() = edgeMode == "sides"
 
     /** "auto" | "on" | "off" */
