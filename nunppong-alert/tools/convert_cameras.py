@@ -30,10 +30,12 @@ def read_rows(path):
 
 
 def find_col(header, *needles, exclude=()):
-    for i, h in enumerate(header):
-        h = h.strip().replace(" ", "").lower()
-        if any(n in h for n in needles) and not any(x in h for x in exclude):
-            return i
+    """needles 는 앞쪽일수록 우선. 같은 needle 안에서는 먼저 나온 컬럼."""
+    norm = [h.strip().replace(" ", "").lower() for h in header]
+    for n in needles:
+        for i, h in enumerate(norm):
+            if n in h and not any(x in h for x in exclude):
+                return i
     return None
 
 
@@ -75,8 +77,8 @@ def main(argv):
 
     rows = read_rows(src)
     header = rows[0]
-    c_lat = find_col(header, "위도", "latitude", "lat")
-    c_lon = find_col(header, "경도", "longitude", "lon")
+    c_lat = find_col(header, "위도", "latitude")
+    c_lon = find_col(header, "경도", "longitude")
     c_lim = find_col(header, "제한속도", "limit", "lmtt")
     c_kind = find_col(header, "단속구분", "단속유형", "단속종류", "regltse")
     c_brg = find_col(header, "방향각", "bearing", "azimuth")
