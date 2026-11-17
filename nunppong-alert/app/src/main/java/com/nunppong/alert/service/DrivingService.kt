@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.app.KeyguardManager
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
@@ -33,6 +34,7 @@ import com.nunppong.alert.core.Reason
 import com.nunppong.alert.core.Stage
 import com.nunppong.alert.core.Status
 import com.nunppong.alert.core.StatusRepo
+import com.nunppong.alert.overlay.LockScreenAlertActivity
 import com.nunppong.alert.overlay.OverlayController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -234,25 +236,34 @@ class DrivingService : Service() {
     private var wakeStage = Stage.HIDDEN
     private var lastWakeAt = 0L
 
-    /** 화면이 꺼진 채로 단속 구간에 새로 가까워지면(숨김→1km 등 단계 상승) 화면을 5초 켠다. */
+    /**
+     * 단속 구간에 새로 가까워졌을 때(숨김→1km 등 단계 상승) 폰이 잠겨 있으면:
+     *  - 화면이 꺼져 있으면 켜고(5초), 1분에 한 번만 (배터리)
+     *  - 잠금 화면 위에 테두리·캐릭터 전용 화면을 띄운다 (잠금이 풀리면 스스로 닫힘)
+     */
     @Suppress("DEPRECATION")
     private fun wakeIfNeeded(stage: Stage) {
         val rose = stage.ordinal > wakeStage.ordinal
         wakeStage = stage
         if (!rose || !prefs.wakeScreen) return
         val pm = getSystemService(PowerManager::class.java)
-        if (pm.isInteractive) return
-        val nowMs = SystemClock.elapsedRealtime()
-        if (nowMs - lastWakeAt < 60_000L) return   // 카메라가 연달아 있어도 1분에 한 번만 (배터리)
-        lastWakeAt = nowMs
-        try {
-            pm.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                "nunppong:wake"
-            ).acquire(5_000L)
-        } catch (e: Exception) {
-            Log.w("DrivingService", "wake failed", e)
+        val locked = getSystemService(KeyguardManager::class.java).isKeyguardLocked
+        val screenOn = pm.isInteractive
+        if (screenOn && !locked) return                // 평소처럼 쓰는 중: 기존 오버레이로 충분
+        if (!screenOn) {
+            val nowMs = SystemClock.elapsedRealtime()
+            if (nowMs - lastWakeAt < 60_000L) return   // 꺼진 화면은 1분에 한 번만
+            lastWakeAt = nowMs
+            try {
+                pm.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                    "nunppong:wake"
+                ).acquire(5_000L)
+            } catch (e: Exception) {
+                Log.w("DrivingService", "wake failed", e)
+            }
         }
+        if (locked) LockScreenAlertActivity.start(this)
     }
 
     /** 카메라를 지난 뒤 "방금 단속 맞았나요?" 조용한 알림 (60초 뒤 저절로 사라짐) */
