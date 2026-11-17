@@ -3,6 +3,9 @@ package com.nunppong.alert.overlay
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.RectF
+import androidx.core.content.res.ResourcesCompat
+import com.nunppong.alert.core.CharacterStyle
 import android.os.SystemClock
 import android.view.View
 import com.nunppong.alert.core.AlertStyle
@@ -20,6 +23,22 @@ class BorderOverlayView(context: Context) : View(context) {
     private var yellow = AlertStyle.YELLOW_DAY
     private var red = AlertStyle.RED_DAY
     private var lastPhase: AlertStyle.Phase? = null
+    private var charOn = false
+    private var charStage = Stage.HIDDEN
+    private var charStart = -100000L
+    private var prevStage = Stage.HIDDEN
+    private val rect = RectF()
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+        color = 0xFFFFFFFF.toInt()
+    }
+    private val charTicker = object : Runnable {
+        override fun run() {
+            invalidate()
+            if (SystemClock.uptimeMillis() - charStart < CharacterStyle.SHOW_MS && isAttachedToWindow) postOnAnimation(this)
+        }
+    }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
@@ -38,7 +57,16 @@ class BorderOverlayView(context: Context) : View(context) {
     fun setState(
         stage: Stage, overspeed: Boolean, night: Boolean, brightness: Float, thickness: Float,
         sidesOnly: Boolean = false, yellow: Int = AlertStyle.YELLOW_DAY, red: Int = AlertStyle.RED_DAY,
+        character: Boolean = false,
     ) {
+        charOn = character
+        if (character && CharacterStyle.shouldShow(prevStage, stage)) {
+            charStage = stage
+            charStart = SystemClock.uptimeMillis()
+            removeCallbacks(charTicker)
+            postOnAnimation(charTicker)
+        }
+        prevStage = stage
         this.sidesOnly = sidesOnly
         this.yellow = yellow
         this.red = red
@@ -49,17 +77,92 @@ class BorderOverlayView(context: Context) : View(context) {
         this.thickness = thickness
         removeCallbacks(ticker)
         lastPhase = null
-        visibility = if (stage == Stage.HIDDEN) INVISIBLE else VISIBLE
+        visibility = if (stage == Stage.HIDDEN && !charShowing()) INVISIBLE else VISIBLE
         invalidate()
         if (stage != Stage.HIDDEN) postOnAnimation(ticker)
     }
 
     override fun onDetachedFromWindow() {
         removeCallbacks(ticker)
+        removeCallbacks(charTicker)
         super.onDetachedFromWindow()
     }
 
+    private fun charShowing() = charOn && SystemClock.uptimeMillis() - charStart < CharacterStyle.SHOW_MS
+
     override fun onDraw(canvas: Canvas) {
+        drawBorder(canvas)
+        drawCharacter(canvas)
+    }
+
+    /** 화면 아래쪽 가운데에 작게(약 80dp), 2초 동안 부드럽게 나타났다 사라진다. 터치는 통과. */
+    private fun drawCharacter(canvas: Canvas) {
+        if (!charOn || charStage == Stage.HIDDEN) return
+        val a = CharacterStyle.alpha(SystemClock.uptimeMillis() - charStart)
+        if (a <= 0f) return
+        val d = resources.displayMetrics.density
+        val size = 80f * d
+        val cx = width / 2f
+        val cy = height * 0.5f
+        val sc = CharacterStyle.scale(SystemClock.uptimeMillis() - charStart)
+        val alpha = (255 * a).toInt().coerceIn(0, 255)
+        canvas.save()
+        canvas.scale(sc, sc, cx, cy)
+        // res/drawable 에 char_s1 / char_s2 / char_s3 (png 등)를 넣으면 그 그림을 쓴다.
+        val resId = resources.getIdentifier("char_" + charStage.name.lowercase(), "drawable", context.packageName)
+        if (resId != 0) {
+            ResourcesCompat.getDrawable(resources, resId, null)?.let { dr ->
+                dr.setBounds((cx - size / 2).toInt(), (cy - size / 2).toInt(), (cx + size / 2).toInt(), (cy + size / 2).toInt())
+                dr.alpha = alpha
+                dr.draw(canvas)
+                canvas.restore()
+                return
+            }
+        }
+
+        // 기본 그림: 손가락 N개 + 거리 글자
+        val n = CharacterStyle.fingers(charStage)
+        val skin = 0xFFFFD9A8.toInt()
+        val line = 0xFF3A2A1A.toInt()
+        val fw = size * 0.13f
+        val gap = size * 0.03f
+        val total = n * fw + (n - 1) * gap
+        val palmTop = cy - size * 0.05f
+        // 손바닥
+        rect.set(cx - size * 0.32f, palmTop, cx + size * 0.32f, palmTop + size * 0.40f)
+        fill.color = skin
+        fill.alpha = alpha
+        canvas.drawRoundRect(rect, size * 0.16f, size * 0.16f, fill)
+        paint.strokeWidth = 2f * d
+        paint.color = line
+        paint.alpha = alpha
+        canvas.drawRoundRect(rect, size * 0.16f, size * 0.16f, paint)
+        // 손가락
+        for (i in 0 until n) {
+            val left = cx - total / 2 + i * (fw + gap)
+            val h = size * (if (n == 1) 0.45f else if (i == n / 2) 0.38f else 0.30f)
+            rect.set(left, palmTop - h, left + fw, palmTop + size * 0.08f)
+            fill.color = skin
+            fill.alpha = alpha
+            canvas.drawRoundRect(rect, fw / 2, fw / 2, fill)
+            paint.color = line
+            paint.alpha = alpha
+            canvas.drawRoundRect(rect, fw / 2, fw / 2, paint)
+        }
+        // 거리 글자 (어두운 알약 위에 흰 글씨 - 어떤 지도 위에서도 보이게)
+        val label = CharacterStyle.label(charStage)
+        text.textSize = 20f * d
+        val tw = text.measureText(label)
+        rect.set(cx - tw / 2 - 10 * d, palmTop + size * 0.46f, cx + tw / 2 + 10 * d, palmTop + size * 0.46f + 28 * d)
+        fill.color = 0xFF000000.toInt()
+        fill.alpha = (alpha * 0.75f).toInt()
+        canvas.drawRoundRect(rect, 14 * d, 14 * d, fill)
+        text.alpha = alpha
+        canvas.drawText(label, cx, rect.bottom - 6 * d, text)
+        canvas.restore()
+    }
+
+    private fun drawBorder(canvas: Canvas) {
         if (stage == Stage.HIDDEN) return
         val phase = AlertStyle.phase(stage, SystemClock.uptimeMillis())
         if (phase == AlertStyle.Phase.OFF) return

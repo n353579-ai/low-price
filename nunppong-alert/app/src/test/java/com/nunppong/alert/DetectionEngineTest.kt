@@ -130,4 +130,37 @@ class DetectionEngineTest {
         bl.clear()
         assertEquals(0, saved.size)
     }
+
+    @Test fun characterShowsOnlyOnStageChange() {
+        assertEquals(1, CharacterStyle.fingers(Stage.S1))
+        assertEquals(5, CharacterStyle.fingers(Stage.S2))
+        assertEquals(3, CharacterStyle.fingers(Stage.S3))
+        assertTrue(CharacterStyle.shouldShow(Stage.HIDDEN, Stage.S1))
+        assertTrue(CharacterStyle.shouldShow(Stage.S1, Stage.S2))
+        assertFalse(CharacterStyle.shouldShow(Stage.S2, Stage.S2))
+        assertFalse(CharacterStyle.shouldShow(Stage.S3, Stage.HIDDEN))
+    }
+
+    @Test fun characterFadesInAndOutWithoutBlinking() {
+        assertEquals(0f, CharacterStyle.alpha(0), 0.001f)
+        assertEquals(1f, CharacterStyle.alpha(1000), 0.001f)
+        assertEquals(0f, CharacterStyle.alpha(CharacterStyle.SHOW_MS), 0.001f)
+        // 한 번 올라갔다가 내려오기만 한다 (깜빡임 없음)
+        var peaked = false
+        var prev = 0f
+        for (t in 0L until CharacterStyle.SHOW_MS step 20) {
+            val a = CharacterStyle.alpha(t)
+            if (a < prev) peaked = true
+            if (peaked) assertTrue(a <= prev + 1e-6f)
+            prev = a
+        }
+    }
+
+    @Test fun characterPopsOutAndTucksBackIn() {
+        assertEquals(0f, CharacterStyle.scale(0), 0.001f)
+        assertTrue(CharacterStyle.scale(CharacterStyle.POP_IN_MS) > 1f)       // 살짝 튀어나왔다가
+        assertEquals(1f, CharacterStyle.scale(1000), 0.001f)                  // 자리 잡고
+        assertTrue(CharacterStyle.scale(CharacterStyle.SHOW_MS - 50) < 0.3f)  // 쏙 들어간다
+        assertEquals(0f, CharacterStyle.scale(CharacterStyle.SHOW_MS), 0.001f)
+    }
 }

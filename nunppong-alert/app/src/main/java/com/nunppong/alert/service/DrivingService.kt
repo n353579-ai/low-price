@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import com.nunppong.alert.MainActivity
@@ -202,9 +203,10 @@ class DrivingService : Service() {
                             SystemClock.elapsedRealtime(),
                         )
                         val o = engine.update(fix)
+                        wakeIfNeeded(o.stage)
                         engine.takePassed()?.let { askFeedback(it) }
                         val show = !prefs.overspeedOnly || o.limit <= 0 || o.speedKmh > o.limit + 5
-                        overlay.update(if (show) o.stage else Stage.HIDDEN, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor)
+                        overlay.update(if (show) o.stage else Stage.HIDDEN, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character)
                         val st = Status(Mode.REAL, o.stage, o.distanceM?.toInt(), o.speedKmh.toInt(), o.overspeed, currentReason)
                         StatusRepo.status.value = st
                         updateNotification("주행 중 · " + stageText(st))
@@ -226,6 +228,26 @@ class DrivingService : Service() {
                 Log.e("DrivingService", "no location permission", e)
                 stopSelf()
             }
+        }
+    }
+
+    private var wakeStage = Stage.HIDDEN
+
+    /** 화면이 꺼진 채로 단속 구간에 새로 가까워지면(숨김→1km 등 단계 상승) 화면을 5초 켠다. */
+    @Suppress("DEPRECATION")
+    private fun wakeIfNeeded(stage: Stage) {
+        val rose = stage.ordinal > wakeStage.ordinal
+        wakeStage = stage
+        if (!rose || !prefs.wakeScreen) return
+        val pm = getSystemService(PowerManager::class.java)
+        if (pm.isInteractive) return
+        try {
+            pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "nunppong:wake"
+            ).acquire(5_000L)
+        } catch (e: Exception) {
+            Log.w("DrivingService", "wake failed", e)
         }
     }
 
@@ -289,7 +311,7 @@ class DrivingService : Service() {
                 val stage = AlertStyle.stageForDistance(dist)
                 val over = stage == Stage.S3 && speed > limit
                 val show = !prefs.overspeedOnly || speed > limit + 5
-                overlay.update(if (show) stage else Stage.HIDDEN, over, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor)
+                overlay.update(if (show) stage else Stage.HIDDEN, over, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character)
 
                 val st = Status(Mode.SIM, stage, if (dist >= 0) dist.toInt() else null, speed, over)
                 StatusRepo.status.value = st

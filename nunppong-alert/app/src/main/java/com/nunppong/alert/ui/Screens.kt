@@ -242,6 +242,24 @@ fun SettingsScreen() {
         Text("끄면(기본) 단속카메라가 앞에 있을 때 항상 경고해요. 켜면 규정속도로 갈 때는 조용해요. 제한속도를 모르는 카메라는 항상 경고해요.",
             style = MaterialTheme.typography.bodySmall)
 
+        var chr by remember { mutableStateOf(prefs.character) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = chr, onCheckedChange = { chr = it; prefs.character = it })
+            Spacer(Modifier.width(8.dp))
+            Text("캐릭터 안내 (손가락 1·5·3)")
+        }
+        Text("거리 단계가 바뀔 때만 작게 2초 나왔다 사라져요. 터치는 그대로 지도로 통과해요.",
+            style = MaterialTheme.typography.bodySmall)
+
+        var wake by remember { mutableStateOf(prefs.wakeScreen) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = wake, onCheckedChange = { wake = it; prefs.wakeScreen = it })
+            Spacer(Modifier.width(8.dp))
+            Text("화면이 꺼져 있으면 단속 접근 때 화면 켜기")
+        }
+        Text("화면이 꺼진 상태에서는 테두리를 보여줄 수 없어서, 단속 1km 앞에서 화면을 5초 켜요. 잠금 화면 위에는 안 보일 수 있어요.",
+            style = MaterialTheme.typography.bodySmall)
+
         var edge by remember { mutableStateOf(prefs.edgeMode) }
         Text("표시 위치")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
