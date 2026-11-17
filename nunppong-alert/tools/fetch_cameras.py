@@ -41,10 +41,10 @@ def main(argv):
     items, total, page = [], None, 1
     while True:
         d = get(key, page)
-        body = d.get("response", {}).get("body")
+        root = d.get("response", d)  # 'response' 로 감싼 응답과 바로 header/body 가 오는 응답 둘 다 처리
+        body = root.get("body")
         if body is None:
-            hdr = d.get("response", {}).get("header", d)
-            raise SystemExit("응답 이상: " + json.dumps(hdr, ensure_ascii=False)[:300])
+            raise SystemExit("응답 이상: " + json.dumps(root.get("header", root), ensure_ascii=False)[:300])
         total = int(body.get("totalCount", 0))
         got = body.get("items") or []
         if isinstance(got, dict):
