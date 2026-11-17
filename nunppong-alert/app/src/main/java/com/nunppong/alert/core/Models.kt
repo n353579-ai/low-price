@@ -34,3 +34,6 @@ data class EngineOutput(
     /** 가장 가까운 카메라의 제한속도 (모르면 0) */
     val limit: Int = 0,
 )
+
+/** 카메라를 방금 지나간 사건 (heading = 지나갈 때 진행방향) */
+data class PassEvent(val camera: Camera, val heading: Double)

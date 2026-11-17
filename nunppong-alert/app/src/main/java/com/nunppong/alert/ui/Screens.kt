@@ -270,6 +270,13 @@ fun SettingsScreen() {
             }
         }
         HorizontalDivider()
+        Text("단속 피드백", style = MaterialTheme.typography.titleMedium)
+        val fb = remember { com.nunppong.alert.core.CameraFeedback.get(ctx) }
+        var fbCount by remember { mutableIntStateOf(fb.size) }
+        Text("카메라를 지나면 \"방금 단속 맞았나요?\" 알림이 와요. 👎를 누른 카메라는 그 진행방향에서 꺼요. 지금 ${fbCount}곳 꺼 둠.",
+            style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = { fb.clear(); fbCount = 0 }) { Text("피드백 모두 지우기") }
+        HorizontalDivider()
         Text("자동 시작 방식", style = MaterialTheme.typography.titleMedium)
         Text("기본: 내 차 블루투스 연결 → 자동 시작, 연결 끊김 → 종료" +
             (if (prefs.btName.isNotEmpty()) "\n내 차: ${prefs.btName}" else "\n(권한 탭에서 내 차 블루투스를 선택해 주세요)"))

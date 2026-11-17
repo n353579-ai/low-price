@@ -11,7 +11,11 @@ package com.nunppong.alert.core
  * 6. 50m 안에 들어왔다가 거리가 다시 늘면 통과 처리, 30초 무시
  * 7. 속도 = GPS speed × 3.6, 3초 이동평균
  */
-class DetectionEngine(private val source: CameraSource) {
+class DetectionEngine(
+    private val source: CameraSource,
+    /** 사용자가 👎로 끈 (카메라, 진행방향) 조합이면 true */
+    private val blocked: (Camera, Double) -> Boolean = { _, _ -> false },
+) {
     companion object {
         const val MIN_SPEED_KMH = 10.0
         const val MAX_ANGLE = 30.0
@@ -30,6 +34,10 @@ class DetectionEngine(private val source: CameraSource) {
     private var pendingCount = 0
     private var heading = -1.0
     private var last = EngineOutput(Stage.HIDDEN, false, null, 0.0)
+    private var passed: PassEvent? = null
+
+    /** 방금 통과한 카메라 (한 번 꺼내면 비워진다). 피드백 질문용. */
+    fun takePassed(): PassEvent? = passed.also { passed = null }
 
     fun update(fix: Fix): EngineOutput {
         val now = fix.timeMs
@@ -59,6 +67,7 @@ class DetectionEngine(private val source: CameraSource) {
 
         for (c in source.near(fix.lat, fix.lon)) {
             if (ignoreUntil.containsKey(c.id)) continue
+            if (blocked(c, heading)) continue
             val d = Geo.distanceM(fix.lat, fix.lon, c.lat, c.lon)
             val prev = lastDist[c.id]
             newDist[c.id] = d
@@ -68,6 +77,7 @@ class DetectionEngine(private val source: CameraSource) {
             if (inside50.contains(c.id) && prev != null && d > prev) {
                 inside50.remove(c.id)
                 ignoreUntil[c.id] = now + IGNORE_MS
+                passed = PassEvent(c, heading)
                 continue
             }
             if (d < PASS_RADIUS_M) inside50.add(c.id)

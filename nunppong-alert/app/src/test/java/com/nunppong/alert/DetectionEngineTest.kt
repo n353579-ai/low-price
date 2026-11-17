@@ -92,4 +92,42 @@ class DetectionEngineTest {
         assertEquals(1, g.near(37.495, 126.995).size)   // 이웃 칸
         assertEquals(0, g.near(36.0, 127.0).size)
     }
+
+    @Test fun passEventEmittedOnce() {
+        val e = DetectionEngine(grid(Camera(0, camLat, camLon, 80)))
+        var count = 0
+        val start = camLat - 1500 / mPerDeg
+        for (i in 0..95) {
+            e.update(fix(start + i * 20 / mPerDeg, camLon, i))
+            if (e.takePassed() != null) count++
+        }
+        assertEquals(1, count)
+    }
+
+    @Test fun blockedCameraIsIgnoredOnlyInThatHeading() {
+        val cam = Camera(0, camLat, camLon, 80)
+        val bl = FeedbackBlocklist()
+        bl.block(camLat, camLon, 0.0)                      // 북쪽 진행에서 끔
+        val north = DetectionEngine(grid(cam)) { c, h -> bl.isBlocked(c, h) }
+        assertTrue(drive(north, upTo = 65).all { it.stage == Stage.HIDDEN })
+        // 남쪽으로 달릴 때는 여전히 경고
+        val south = DetectionEngine(grid(cam)) { c, h -> bl.isBlocked(c, h) }
+        val start = camLat + 1500 / mPerDeg
+        var o = EngineOutput(Stage.HIDDEN, false, null, 0.0)
+        for (i in 0..65) o = south.update(fix(start - i * 20 / mPerDeg, camLon, i, bearing = 180f))
+        assertEquals(Stage.S3, o.stage)
+    }
+
+    @Test fun feedbackKeyUsesHeadingSector() {
+        assertEquals(FeedbackBlocklist.sector(0.0), FeedbackBlocklist.sector(20.0))
+        assertEquals(FeedbackBlocklist.sector(0.0), FeedbackBlocklist.sector(350.0))
+        assertNotEquals(FeedbackBlocklist.sector(0.0), FeedbackBlocklist.sector(180.0))
+        var saved = emptySet<String>()
+        val bl = FeedbackBlocklist(emptyList()) { saved = it }
+        bl.block(37.5, 127.0, 90.0)
+        assertEquals(1, saved.size)
+        assertEquals(1, FeedbackBlocklist(saved).size)
+        bl.clear()
+        assertEquals(0, saved.size)
+    }
 }

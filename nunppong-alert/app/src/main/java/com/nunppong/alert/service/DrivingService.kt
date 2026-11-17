@@ -21,6 +21,8 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.nunppong.alert.core.AlertStyle
+import com.nunppong.alert.core.CameraFeedback
+import com.nunppong.alert.core.PassEvent
 import com.nunppong.alert.core.CameraRepository
 import com.nunppong.alert.core.DetectionEngine
 import com.nunppong.alert.core.Fix
@@ -54,6 +56,8 @@ class DrivingService : Service() {
         const val ACTION_STOP = "com.nunppong.alert.STOP"
         private const val CHANNEL = "driving"
         private const val NOTI_ID = 1
+        const val FEEDBACK_NOTI_ID = 2
+        private const val FEEDBACK_CHANNEL = "feedback"
 
         fun startReal(ctx: Context, reason: Reason = Reason.MANUAL) {
             ctx.startForegroundService(
@@ -90,6 +94,12 @@ class DrivingService : Service() {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL, "단속 알림 동작 상태", NotificationManager.IMPORTANCE_LOW)
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(FEEDBACK_CHANNEL, "단속 맞았나요? 질문", NotificationManager.IMPORTANCE_LOW).apply {
+                setSound(null, null)
+                enableVibration(false)
+            }
         )
     }
 
@@ -180,7 +190,8 @@ class DrivingService : Service() {
         job = scope.launch {
             val grid = withContext(Dispatchers.Default) { CameraRepository.load(this@DrivingService) }
             StatusRepo.cameraCount.value = grid.count
-            val engine = DetectionEngine(grid)
+            val feedback = CameraFeedback.get(this@DrivingService)
+            val engine = DetectionEngine(grid) { c, h -> feedback.isBlocked(c, h) }
             val cb = object : LocationCallback() {
                 override fun onLocationResult(result: LocationResult) {
                     for (loc in result.locations) {
@@ -191,6 +202,7 @@ class DrivingService : Service() {
                             SystemClock.elapsedRealtime(),
                         )
                         val o = engine.update(fix)
+                        engine.takePassed()?.let { askFeedback(it) }
                         val show = !prefs.overspeedOnly || o.limit <= 0 || o.speedKmh > o.limit + 5
                         overlay.update(if (show) o.stage else Stage.HIDDEN, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor)
                         val st = Status(Mode.REAL, o.stage, o.distanceM?.toInt(), o.speedKmh.toInt(), o.overspeed, currentReason)
@@ -215,6 +227,29 @@ class DrivingService : Service() {
                 stopSelf()
             }
         }
+    }
+
+    /** 카메라를 지난 뒤 "방금 단속 맞았나요?" 조용한 알림 (60초 뒤 저절로 사라짐) */
+    private fun askFeedback(e: PassEvent) {
+        fun pi(down: Boolean) = PendingIntent.getBroadcast(
+            this, if (down) 11 else 10,
+            Intent(this, FeedbackReceiver::class.java)
+                .putExtra(FeedbackReceiver.EXTRA_LAT, e.camera.lat)
+                .putExtra(FeedbackReceiver.EXTRA_LON, e.camera.lon)
+                .putExtra(FeedbackReceiver.EXTRA_HEADING, e.heading)
+                .putExtra(FeedbackReceiver.EXTRA_DOWN, down),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val n = Notification.Builder(this, FEEDBACK_CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("방금 단속 맞았나요?")
+            .setContentText("아니면 👎 — 이 방향에서는 이 카메라를 끕니다")
+            .setTimeoutAfter(60_000L)
+            .setAutoCancel(true)
+            .addAction(Notification.Action.Builder(null, "👍 맞아요", pi(false)).build())
+            .addAction(Notification.Action.Builder(null, "👎 아니에요", pi(true)).build())
+            .build()
+        getSystemService(NotificationManager::class.java).notify(FEEDBACK_NOTI_ID, n)
     }
 
     /** 승객 모드: 위치 수집과 오버레이를 멈추고 1시간 뒤 자동 재개 */

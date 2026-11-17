@@ -58,6 +58,8 @@
             </intent-filter>
         </receiver>
 
+        <receiver android:name=".service.FeedbackReceiver" android:exported="false" />
+
         <receiver android:name=".vehicle.ActivityTransitionReceiver" android:exported="false" />
 
         <receiver android:name=".vehicle.BootReceiver" android:exported="true">
