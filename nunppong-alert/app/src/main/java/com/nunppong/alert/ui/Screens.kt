@@ -751,7 +751,7 @@ fun SettingsScreen() {
                     Column(Modifier.weight(1f)) {
                         Text("단속 접근 시 꺼진 화면 켜기", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "화면이 꺼져 있을 때 단속 1km 전방에 도달하면 화면을 5초간 켭니다.",
+                            "화면이 꺼져 있거나 잠겨 있어도 단속 1km 전방에서 화면을 켜고 잠금 화면 위에 표시합니다. 잠금을 풀면 자동으로 사라집니다.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

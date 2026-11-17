@@ -36,6 +36,17 @@
             </intent-filter>
         </activity>
 
+        <!-- 잠금 화면 위 단속 알림 (터치 통과, 잠금이 풀리면 스스로 닫힘) -->
+        <activity
+            android:name=".overlay.LockScreenAlertActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:noHistory="true"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <service
             android:name=".service.DrivingService"
             android:exported="false"
