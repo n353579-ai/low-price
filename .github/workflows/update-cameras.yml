@@ -1,0 +1,45 @@
+name: Update camera data
+
+on:
+  schedule:
+    - cron: "0 19 1 * *"   # 매월 2일 새벽(한국시간) 4시
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nunppong-alert
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch from data.go.kr
+        env:
+          DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+        run: python3 tools/fetch_cameras.py /tmp/cameras.csv
+
+      - name: Convert (keep old file if result looks wrong)
+        run: |
+          old=$(grep -c '^C ' app/src/main/assets/cameras.grid.txt || true)
+          python3 tools/convert_cameras.py /tmp/cameras.csv /tmp/new.grid.txt
+          new=$(grep -c '^C ' /tmp/new.grid.txt || true)
+          echo "old=$old new=$new"
+          if [ "$new" -lt $((old * 9 / 10)) ]; then
+            echo "새 데이터가 기존의 90% 미만이라 교체하지 않습니다"; exit 1
+          fi
+          cp /tmp/new.grid.txt app/src/main/assets/cameras.grid.txt
+          # 수동 CSV가 남아 있으면 빌드가 옛 CSV로 덮어쓰므로 지운다
+          git rm -q --ignore-unmatch data/*.csv || true
+
+      - name: Commit if changed
+        run: |
+          git config user.name "camera-data-bot"
+          git config user.email "camera-data-bot@users.noreply.github.com"
+          git add -A app/src/main/assets data
+          if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
+          git commit -m "Update camera data from data.go.kr"
+          git push
