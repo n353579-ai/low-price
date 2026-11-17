@@ -1,3 +1,7 @@
 <resources>
-    <color name="ic_background">#1B1B1F</color>
+    <color name="ic_background">#121316</color>
+    <color name="brand_yellow">#FFC400</color>
+    <color name="brand_red">#FF2A1A</color>
+    <color name="surface_light">#F8F9FA</color>
+    <color name="surface_dark">#121214</color>
 </resources>
