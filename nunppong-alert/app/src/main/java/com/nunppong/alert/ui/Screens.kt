@@ -630,6 +630,32 @@ fun SettingsScreen() {
                     )
                 }
 
+                var spreadV by remember { mutableFloatStateOf(prefs.spread) }
+                Column {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("안쪽 번짐 세기", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (spreadV < 0.05f) "끔" else "${(spreadV * 100).roundToInt()}%",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Slider(
+                        value = spreadV,
+                        onValueChange = { spreadV = it; prefs.spread = it },
+                        valueRange = 0f..1.5f,
+                    )
+                    Text(
+                        "단속 지점에 가까워질수록 색이 화면 안쪽으로 더 넓고 진하게 번져요. 깜빡임 횟수는 그대로예요.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
                 Column {
                     Text("표시 위치", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(8.dp))

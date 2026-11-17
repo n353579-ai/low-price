@@ -24,6 +24,8 @@ class BorderOverlayView(context: Context) : View(context) {
     private var red = AlertStyle.RED_DAY
     private var lastPhase: AlertStyle.Phase? = null
     private var charOn = false
+    private var proximity = 0f
+    private var spread = 1f
     private var charStage = Stage.HIDDEN
     private var charStart = -100000L
     private var prevStage = Stage.HIDDEN
@@ -57,8 +59,10 @@ class BorderOverlayView(context: Context) : View(context) {
     fun setState(
         stage: Stage, overspeed: Boolean, night: Boolean, brightness: Float, thickness: Float,
         sidesOnly: Boolean = false, yellow: Int = AlertStyle.YELLOW_DAY, red: Int = AlertStyle.RED_DAY,
-        character: Boolean = false,
+        character: Boolean = false, proximity: Float = 0f, spread: Float = 1f,
     ) {
+        this.proximity = proximity
+        this.spread = spread
         charOn = character
         if (character && CharacterStyle.shouldShow(prevStage, stage)) {
             charStage = stage
@@ -195,12 +199,13 @@ class BorderOverlayView(context: Context) : View(context) {
         canvas.drawRect(cw + lw / 2, cw + lw / 2, wf - cw - lw / 2, hf - cw - lw / 2, paint)
 
         // 2) 안쪽으로 번지는 글로우 (점점 옅어지는 동심 사각형)
-        val glow = w * 1.6f
-        val n = 8
+        val glow = AlertStyle.glowPx(w, wf, proximity, spread)
+        val n = 14
         val step = glow / n
+        val peak = AlertStyle.glowPeakAlpha(proximity, spread)
         for (i in 0 until n) {
             val inset = w + step * i + step / 2
-            val a = 0.55f * (1f - i.toFloat() / n).pow(2)
+            val a = peak * (1f - i.toFloat() / n).pow(2)
             paint.color = base
             paint.alpha = (255 * alphaScale * a).toInt().coerceIn(0, 255)
             paint.strokeWidth = step + 0.5f
@@ -221,11 +226,12 @@ class BorderOverlayView(context: Context) : View(context) {
         canvas.drawRect(cw, 0f, w, hf, fill)
         canvas.drawRect(wf - w, 0f, wf - cw, hf, fill)
         fill.color = base
-        val glow = w * 1.6f
-        val n = 8
+        val glow = AlertStyle.glowPx(w, wf, proximity, spread)
+        val n = 14
         val step = glow / n
+        val peak = AlertStyle.glowPeakAlpha(proximity, spread)
         for (i in 0 until n) {
-            val a = 0.55f * (1f - i.toFloat() / n).pow(2)
+            val a = peak * (1f - i.toFloat() / n).pow(2)
             fill.alpha = (255 * alphaScale * a).toInt().coerceIn(0, 255)
             val x = w + step * i
             canvas.drawRect(x, 0f, x + step + 0.5f, hf, fill)

@@ -44,6 +44,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("wakeScreen", true)
         set(v) = sp.edit().putBoolean("wakeScreen", v).apply()
 
+    /** 안쪽으로 번지는 세기 (0 = 예전처럼 고정, 1 = 기본, 1.5 = 크게) */
+    var spread: Float
+        get() = sp.getFloat("spread", 1f)
+        set(v) = sp.edit().putFloat("spread", v).apply()
+
     val sidesOnly: Boolean get() = edgeMode == "sides"
 
     /** "auto" | "on" | "off" */

@@ -175,4 +175,23 @@ class DetectionEngineTest {
         assertEquals(Stage.S3, o.stage)
         assertNull(e.takePassed())
     }
+
+    @Test fun spreadGrowsWithProximityAndStaysBounded() {
+        assertEquals(0f, AlertStyle.proximity(null), 0.001f)
+        assertEquals(0f, AlertStyle.proximity(1200.0), 0.001f)
+        assertTrue(AlertStyle.proximity(300.0) > AlertStyle.proximity(800.0))
+        assertEquals(1f, AlertStyle.proximity(0.0), 0.001f)
+        val screen = 1080f
+        val band = 30f
+        var prev = 0f
+        for (d in 1000 downTo 0 step 50) {
+            val g = AlertStyle.glowPx(band, screen, AlertStyle.proximity(d.toDouble()), 1.5f)
+            assertTrue(g >= prev - 0.001f)                       // 가까울수록 넓어지기만 한다
+            assertTrue(g <= screen * AlertStyle.MAX_GLOW_FRACTION + 0.001f)  // 가운데 지도 보호
+            prev = g
+        }
+        // 번짐 끔(spread=0)이면 예전과 같은 고정 폭
+        assertEquals(band * 1.6f, AlertStyle.glowPx(band, screen, 1f, 0f), 0.001f)
+        assertTrue(AlertStyle.glowPeakAlpha(1f, 1.5f) <= 0.85f)
+    }
 }
