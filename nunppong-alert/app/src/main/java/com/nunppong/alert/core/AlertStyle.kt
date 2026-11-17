@@ -59,4 +59,24 @@ object AlertStyle {
         Phase.RED -> if (night) nightOf(red, RED_DAY, RED_NIGHT) else red
         Phase.OFF -> 0
     }
+
+    /** 단속 지점에 얼마나 가까운지 0(1km 밖)..1(바로 앞). 번짐 폭·진하기를 키우는 데 쓴다. */
+    fun proximity(distanceM: Double?): Float {
+        if (distanceM == null || distanceM > 1000.0) return 0f
+        return ((1000.0 - distanceM) / 1000.0).toFloat().coerceIn(0f, 1f)
+    }
+
+    const val MAX_GLOW_FRACTION = 0.30f   // 번짐이 화면 폭의 30%를 넘지 않게 (가운데 지도 보호)
+
+    /** 안쪽으로 번지는 폭(px). spread=0 이면 예전과 같은 고정 폭(띠 두께의 1.6배). */
+    fun glowPx(bandPx: Float, screenWidthPx: Float, proximity: Float, spread: Float): Float {
+        val base = bandPx * 1.6f
+        val target = screenWidthPx * 0.25f
+        val extra = (target - base).coerceAtLeast(0f) * proximity * spread
+        return (base + extra).coerceAtMost(screenWidthPx * MAX_GLOW_FRACTION)
+    }
+
+    /** 번짐의 가장 진한 부분의 투명도. 가까울수록 진해진다 (최대 0.85). */
+    fun glowPeakAlpha(proximity: Float, spread: Float): Float =
+        (0.55f + 0.30f * proximity * spread).coerceIn(0.55f, 0.85f)
 }

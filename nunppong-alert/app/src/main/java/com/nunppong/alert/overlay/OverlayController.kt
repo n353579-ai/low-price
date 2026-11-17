@@ -18,7 +18,7 @@ class OverlayController(context: Context) {
     fun update(
         stage: Stage, overspeed: Boolean, night: Boolean, brightness: Float, thickness: Float,
         sidesOnly: Boolean = false, yellow: Int = AlertStyle.YELLOW_DAY, red: Int = AlertStyle.RED_DAY,
-        character: Boolean = false,
+        character: Boolean = false, proximity: Float = 0f, spread: Float = 1f,
     ) {
         if (view == null) {
             if (stage == Stage.HIDDEN || !Settings.canDrawOverlays(ctx)) return
@@ -31,7 +31,7 @@ class OverlayController(context: Context) {
                 return
             }
         }
-        view?.setState(stage, overspeed, night, brightness, thickness, sidesOnly, yellow, red, character)
+        view?.setState(stage, overspeed, night, brightness, thickness, sidesOnly, yellow, red, character, proximity, spread)
     }
 
     fun remove() {

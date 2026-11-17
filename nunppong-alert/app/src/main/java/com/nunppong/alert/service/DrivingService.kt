@@ -208,7 +208,7 @@ class DrivingService : Service() {
                         wakeIfNeeded(o.stage)
                         engine.takePassed()?.let { askFeedback(it) }
                         val show = !prefs.overspeedOnly || o.limit <= 0 || o.speedKmh > o.limit + 5
-                        overlay.update(if (show) o.stage else Stage.HIDDEN, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character)
+                        overlay.update(if (show) o.stage else Stage.HIDDEN, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character, AlertStyle.proximity(o.distanceM), prefs.spread)
                         val st = Status(Mode.REAL, o.stage, o.distanceM?.toInt(), o.speedKmh.toInt(), o.overspeed, currentReason)
                         StatusRepo.status.value = st
                         updateNotification("주행 중 · " + stageText(st))
@@ -326,7 +326,7 @@ class DrivingService : Service() {
                 val stage = AlertStyle.stageForDistance(dist)
                 val over = stage == Stage.S3 && speed > limit
                 val show = !prefs.overspeedOnly || speed > limit + 5
-                overlay.update(if (show) stage else Stage.HIDDEN, over, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character)
+                overlay.update(if (show) stage else Stage.HIDDEN, over, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character, AlertStyle.proximity(dist), prefs.spread)
 
                 val st = Status(Mode.SIM, stage, if (dist >= 0) dist.toInt() else null, speed, over)
                 StatusRepo.status.value = st

@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.WindowManager
+import com.nunppong.alert.core.AlertStyle
 import com.nunppong.alert.core.Prefs
 import com.nunppong.alert.core.Stage
 import com.nunppong.alert.core.StatusRepo
@@ -40,6 +41,7 @@ class LockScreenAlertActivity : Activity() {
             view.setState(
                 st.stage, st.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness,
                 prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character,
+                AlertStyle.proximity(st.distanceM?.toDouble()), prefs.spread,
             )
             handler.postDelayed(this, 300)
         }
