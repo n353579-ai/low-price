@@ -13,29 +13,36 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.nunppong.alert.core.CameraRepository
 import com.nunppong.alert.bt.CdmHelper
 import com.nunppong.alert.bt.PairedDevice
+import com.nunppong.alert.core.CameraRepository
 import com.nunppong.alert.core.Mode
-import com.nunppong.alert.core.Reason
-import com.nunppong.alert.service.Passenger
-import com.nunppong.alert.vehicle.VehicleAssist
 import com.nunppong.alert.core.Prefs
+import com.nunppong.alert.core.Reason
+import com.nunppong.alert.core.Stage
 import com.nunppong.alert.core.StatusRepo
 import com.nunppong.alert.service.DrivingService
+import com.nunppong.alert.service.Passenger
 import com.nunppong.alert.service.stageText
+import com.nunppong.alert.ui.theme.DangerRed
+import com.nunppong.alert.ui.theme.SafeGreen
+import com.nunppong.alert.ui.theme.WarningYellow
+import com.nunppong.alert.vehicle.VehicleAssist
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -43,13 +50,16 @@ import kotlinx.coroutines.withContext
 @Composable
 private fun Page(content: @Composable ColumnScope.() -> Unit) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         content = content,
     )
 }
 
-// ───────────── 홈 ─────────────
+// ───────────── 홈 화면 ─────────────
 @Composable
 fun HomeScreen(refresh: Int, goPermissions: () -> Unit) {
     val ctx = LocalContext.current
@@ -58,73 +68,306 @@ fun HomeScreen(refresh: Int, goPermissions: () -> Unit) {
     val prefs = remember { Prefs(ctx) }
     var tick by remember { mutableIntStateOf(0) }
     val passengerActive = remember(refresh, tick, status) { prefs.isPassengerActive() }
+    val isRunning = status.mode != Mode.IDLE
+
     Page {
-        Text("눈뽕 단속알림", style = MaterialTheme.typography.headlineMedium)
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(20.dp)) {
-                Text("현재 상태", style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.height(6.dp))
-                val text = when (status.mode) {
-                    Mode.IDLE -> if (passengerActive) "승객 모드 (${hm(prefs.passengerUntil)}까지)"
-                        else if (prefs.btAddress.isNotEmpty()) "대기 중 · 내 차 연결을 기다리는 중" else "대기 중"
-                    Mode.SIM -> "시뮬레이션 · " + stageText(status)
+        // 앱 상단 헤더
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column {
+                Text(
+                    "눈뽕 단속알림",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Text(
+                    "화면 테두리 깜빡임으로 알려주는 안전 주행",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        // 운전자용 대형 상태 대시보드 카드
+        val cardBorderColor = when {
+            status.overspeed -> DangerRed
+            status.stage == Stage.S3 -> DangerRed
+            status.stage == Stage.S1 || status.stage == Stage.S2 -> WarningYellow
+            isRunning -> SafeGreen
+            else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+        }
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(2.dp, cardBorderColor, RoundedCornerShape(20.dp)),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        ) {
+            Column(Modifier.padding(22.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        "현재 동작 상태",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // 상태 인디케이터 배지
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = when {
+                            passengerActive -> Color(0xFF8B5CF6).copy(alpha = 0.15f)
+                            isRunning -> SafeGreen.copy(alpha = 0.15f)
+                            else -> MaterialTheme.colorScheme.surfaceVariant
+                        },
+                    ) {
+                        Text(
+                            text = when {
+                                passengerActive -> "승객 모드"
+                                status.mode == Mode.REAL -> "주행 중"
+                                status.mode == Mode.SIM -> "시뮬레이션"
+                                else -> "대기 중"
+                            },
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = when {
+                                passengerActive -> Color(0xFF8B5CF6)
+                                isRunning -> SafeGreen
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                val mainText = when (status.mode) {
+                    Mode.IDLE -> if (passengerActive) "승객 모드 (${hm(prefs.passengerUntil)}까지 조용)"
+                        else if (prefs.btAddress.isNotEmpty()) "내 차(${prefs.btName.ifEmpty { "연결 대기" }})를 기다리는 중"
+                        else "대기 중 · 준비 완료"
+                    Mode.SIM -> stageText(status)
                     Mode.REAL -> when (status.reason) {
                         Reason.BLUETOOTH -> "내 차 연결됨 · "
-                        Reason.VEHICLE -> "차량 감지 · "
+                        Reason.VEHICLE -> "차량 이동 감지 · "
                         else -> ""
                     } + stageText(status)
                 }
-                Text(text, style = MaterialTheme.typography.titleLarge)
-            }
-        }
-        if (!ready) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("권한 설정이 필요해요. 다른 앱 위 표시와 위치 권한이 있어야 동작합니다.")
-                    Button(onClick = goPermissions) { Text("권한 설정하러 가기") }
+
+                Text(
+                    text = mainText,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (status.overspeed) DangerRed else MaterialTheme.colorScheme.onSurface,
+                )
+
+                // 주행 중일 때 추가 정보 표시 (속도 및 남은 거리)
+                if (isRunning && (status.speedKmh > 0 || status.distanceM != null)) {
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(
+                            "현재 속도 ${status.speedKmh} km/h",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        status.distanceM?.let { d ->
+                            Text(
+                                "단속까지 ${d}m",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (status.overspeed) DangerRed else WarningYellow,
+                            )
+                        }
+                    }
                 }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+
+        // 권한 미비 경고 카드
+        if (!ready) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(2.dp, DangerRed, RoundedCornerShape(16.dp)),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                ),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "⚠️ 필수 권한 설정이 필요합니다",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Text(
+                        "화면 위에 테두리를 그리고 위치를 측정하려면 '다른 앱 위 표시'와 '위치(항상 허용)' 권한이 반드시 필요해요.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Button(
+                        onClick = goPermissions,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Text("권한 설정하러 가기", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                }
+            }
+        }
+
+        // 운전 중 누르기 편한 큰 조작 버튼
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Button(
                 onClick = { DrivingService.startReal(ctx) },
                 enabled = ready && status.mode != Mode.REAL,
-            ) { Text("수동 시작") }
+                modifier = Modifier.weight(1f).height(58.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) {
+                Text("▶ 주행 시작", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
+
             OutlinedButton(
                 onClick = { DrivingService.stop(ctx) },
-                enabled = status.mode != Mode.IDLE,
-            ) { Text("종료") }
+                enabled = isRunning,
+                modifier = Modifier.weight(1f).height(58.dp),
+                shape = RoundedCornerShape(14.dp),
+                border = ButtonDefaults.outlinedButtonBorder(enabled = isRunning).copy(width = 2.dp),
+            ) {
+                Text("■ 알림 종료", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
         }
-        OutlinedButton(onClick = { Passenger.toggle(ctx); tick++ }) {
-            Text(if (passengerActive) "승객 모드 해제 (${hm(prefs.passengerUntil)}까지 꺼짐)" else "지금은 승객 (1시간 끄기)")
+
+        // 승객 모드 토글 대형 버튼
+        OutlinedButton(
+            onClick = { Passenger.toggle(ctx); tick++ },
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = if (passengerActive) {
+                ButtonDefaults.outlinedButtonColors(
+                    containerColor = Color(0xFF8B5CF6).copy(alpha = 0.12f),
+                    contentColor = Color(0xFF7C3AED),
+                )
+            } else {
+                ButtonDefaults.outlinedButtonColors()
+            },
+        ) {
+            Text(
+                if (passengerActive) "🙋 승객 모드 해제 (${hm(prefs.passengerUntil)}까지 꺼짐)"
+                else "🚕 지금은 승객 (1시간 동안 끄기)",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
+
+        // 단속카메라 데이터 로드 상태 안내
         val cams by StatusRepo.cameraCount.collectAsStateWithLifecycle()
         LaunchedEffect(Unit) {
             val g = withContext(Dispatchers.Default) { CameraRepository.load(ctx) }
             StatusRepo.cameraCount.value = g.count
         }
-        Text(
-            when (cams) {
-                null -> "단속카메라 데이터 확인 중…"
-                0 -> "⚠ 단속카메라 데이터가 비어 있어요. 저장소의 nunppong-alert/data/ 폴더에 공공데이터 CSV를 올리면 빌드 때 자동 반영돼요."
-                else -> "단속카메라 ${cams}개 로드됨 (오프라인)"
-            },
-            style = MaterialTheme.typography.bodySmall,
-        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Row(
+                Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("📡", fontSize = 20.sp)
+                Text(
+                    text = when (cams) {
+                        null -> "단속카메라 데이터를 확인하는 중입니다…"
+                        0 -> "단속카메라 데이터가 비어 있습니다. 공공데이터를 확인해 주세요."
+                        else -> "전국 단속카메라 ${cams}개 탑재 완료 (오프라인 동작)"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
-// ───────────── 권한 ─────────────
+// ───────────── 권한 화면 ─────────────
 @Composable
-private fun PermCard(step: Int, title: String, desc: String, done: Boolean, button: String, onClick: () -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+private fun PermCard(
+    step: Int,
+    title: String,
+    desc: String,
+    done: Boolean,
+    button: String,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (done) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
+        ),
+        border = if (done) {
+            null
+        } else {
+            androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+        },
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("$step. $title", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                Text(if (done) "✅ 완료" else "⬜ 필요")
+                Text(
+                    "$step. $title",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (done) SafeGreen.copy(alpha = 0.15f) else MaterialTheme.colorScheme.error.copy(alpha = 0.15f),
+                ) {
+                    Text(
+                        if (done) "완료" else "설정 필요",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (done) SafeGreen else MaterialTheme.colorScheme.error,
+                    )
+                }
             }
-            Text(desc, style = MaterialTheme.typography.bodyMedium)
-            if (!done) Button(onClick = onClick) { Text(button) }
+            Text(
+                desc,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (!done) {
+                Button(
+                    onClick = onClick,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                ) {
+                    Text(button, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+            }
         }
     }
 }
@@ -150,71 +393,175 @@ fun PermissionScreen(refresh: Int, onChanged: () -> Unit) {
     val cdmLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
         val d = picked
         if (r.resultCode == Activity.RESULT_OK && d != null) {
-            CdmHelper.finish(ctx, d); saved = d.name; msg = "'${d.name}' 등록 완료"
-        } else msg = "등록이 취소됐어요"
+            CdmHelper.finish(ctx, d)
+            saved = d.name
+            msg = "'${d.name}' 등록이 완료되었어요"
+        } else {
+            msg = "등록이 취소되었습니다"
+        }
         onChanged()
     }
 
     Page {
-        Text("권한 안내", style = MaterialTheme.typography.headlineSmall)
-        Text("아래 순서대로 허용해 주세요.", style = MaterialTheme.typography.bodyMedium)
+        Text("권한 안내", style = MaterialTheme.typography.headlineLarge)
+        Text(
+            "내비게이션 위에 안전하게 테두리를 띄우기 위해 아래 권한들을 순서대로 허용해 주세요.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
-        PermCard(1, "다른 앱 위에 표시", "다른 화면 위에 노랑·빨강 테두리를 그리기 위해 필요해요. 화면 터치는 가로채지 않아요.",
-            overlay, "설정 열기") {
+        PermCard(
+            step = 1,
+            title = "다른 앱 위에 표시",
+            desc = "내비게이션 화면 가장자리에 노랑·빨강 안전 테두리를 띄우기 위해 필요해요. 화면 터치는 가로채지 않고 그대로 통과합니다.",
+            done = overlay,
+            button = "권한 설정 열기",
+        ) {
             ctx.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}")))
         }
-        PermCard(2, "위치 (항상 허용)", "앱을 안 켜고 있어도 단속카메라까지의 거리를 계산하려면 '항상 허용'이 필요해요. " +
-            "먼저 위치를 허용한 뒤, 한 번 더 '항상 허용'을 골라 주세요.",
-            fine && bg, if (!fine) "위치 허용" else "항상 허용으로 변경") {
-            if (!fine) fineLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-            else if (Build.VERSION.SDK_INT >= 29) bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-        }
-        PermCard(3, "알림", "동작 중임을 알리는 알림과 '지금은 승객' 버튼을 보여주기 위해 필요해요.",
-            noti, "알림 허용") {
-            if (Build.VERSION.SDK_INT >= 33) notiLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+
+        PermCard(
+            step = 2,
+            title = "위치 정보 (항상 허용)",
+            desc = "화면이 꺼져 있거나 다른 앱을 쓰는 중에도 단속카메라까지의 거리를 정확히 계산하려면 '항상 허용'이 필요합니다.",
+            done = fine && bg,
+            button = if (!fine) "위치 권한 허용" else "설정에서 '항상 허용'으로 변경",
+        ) {
+            if (!fine) {
+                fineLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            } else if (Build.VERSION.SDK_INT >= 29) {
+                bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            }
         }
 
-        // 4. 내 차 블루투스
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        PermCard(
+            step = 3,
+            title = "알림 허용",
+            desc = "백그라운드 주행 알림과 '지금은 승객' 토글 버튼을 상태창에 보여드리기 위해 필요합니다.",
+            done = noti,
+            button = "알림 권한 허용",
+        ) {
+            if (Build.VERSION.SDK_INT >= 33) {
+                notiLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
+        // 4. 내 차 블루투스 설정 카드
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("4. 내 차 블루투스 선택", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    Text(if (saved.isNotEmpty()) "✅ 완료" else "⬜ 필요")
+                    Text(
+                        "4. 내 차 블루투스 연동",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (saved.isNotEmpty()) SafeGreen.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                    ) {
+                        Text(
+                            if (saved.isNotEmpty()) "등록됨" else "선택 필요",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (saved.isNotEmpty()) SafeGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                Text("내 차 오디오(블루투스)가 연결되면 자동으로 켜지고, 끊기면 꺼져요. 버스·택시에서는 울리지 않아요. " +
-                    "차에 타서 블루투스가 연결된 상태에서 고르면 가장 잘 등록돼요.")
-                if (saved.isNotEmpty()) Text("현재: $saved", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "내 차 블루투스가 연결되면 자동으로 켜지고, 시동을 끄면 저절로 꺼집니다. 버스나 택시에서는 울리지 않아요.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (saved.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            "현재 등록된 차량: $saved",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
                 if (!btOk) {
-                    Button(onClick = { btLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) }) { Text("블루투스 권한 허용") }
+                    Button(
+                        onClick = { btLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text("블루투스 권한 허용", fontWeight = FontWeight.Bold)
+                    }
                 } else {
                     val devices = remember(refresh, saved) { CdmHelper.bonded(ctx) }
-                    if (devices.isEmpty()) Text("페어링된 기기가 없어요. 폰 설정에서 차량과 먼저 페어링해 주세요.")
+                    if (devices.isEmpty()) {
+                        Text(
+                            "페어링된 기기가 없습니다. 스마트폰 블루투스 설정에서 차량 오디오와 먼저 연결해 주세요.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     devices.forEach { d ->
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = d.address.equals(prefs.btAddress, true), onClick = {
-                                picked = d
-                                if (Build.VERSION.SDK_INT < 31) {
-                                    prefs.btAddress = d.address; prefs.btName = d.name; saved = d.name; msg = "'${d.name}' 저장 완료"
-                                } else {
-                                    msg = "등록 중…"
-                                    CdmHelper.associate(ctx, d.address,
-                                        onChooser = { cdmLauncher.launch(IntentSenderRequest.Builder(it).build()) },
-                                        onError = { e ->
-                                            msg = "등록 실패: $e (차에서 블루투스가 연결된 상태로 다시 시도해 보세요)"
-                                        })
-                                }
-                            })
-                            Text(d.name)
+                        val selected = d.address.equals(prefs.btAddress, true)
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    picked = d
+                                    if (Build.VERSION.SDK_INT < 31) {
+                                        prefs.btAddress = d.address
+                                        prefs.btName = d.name
+                                        saved = d.name
+                                        msg = "'${d.name}' 차량이 저장되었어요"
+                                    } else {
+                                        msg = "차량 등록 진행 중…"
+                                        CdmHelper.associate(ctx, d.address,
+                                            onChooser = { cdmLauncher.launch(IntentSenderRequest.Builder(it).build()) },
+                                            onError = { e ->
+                                                msg = "등록 실패: $e (차량 블루투스가 연결된 상태에서 시도해 주세요)"
+                                            })
+                                    }
+                                },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                            border = if (selected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+                        ) {
+                            Row(
+                                Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                RadioButton(selected = selected, onClick = null)
+                                Text(
+                                    d.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
                         }
                     }
-                    msg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    msg?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
         }
     }
 }
 
-// ───────────── 설정 ─────────────
+// ───────────── 설정 화면 ─────────────
 @Composable
 fun SettingsScreen() {
     val ctx = LocalContext.current
@@ -224,107 +571,284 @@ fun SettingsScreen() {
     var night by remember { mutableStateOf(prefs.nightMode) }
 
     Page {
-        Text("설정", style = MaterialTheme.typography.headlineSmall)
+        Text("설정", style = MaterialTheme.typography.headlineLarge)
 
-        Text("밝기  ${(brightness * 100).roundToInt()}%")
-        Slider(value = brightness, onValueChange = { brightness = it; prefs.brightness = it }, valueRange = 0.3f..1f)
+        // 1. 디스플레이 & 시각 알림 그룹
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    "화면 테두리 표시 설정",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
 
-        val base = 10f * thickness
-        Text("테두리 두께  ${base.roundToInt()}dp (과속 시 ${(30f * thickness).roundToInt()}dp) · 잘 안 보이면 올려 보세요")
-        Slider(value = thickness, onValueChange = { thickness = it; prefs.thickness = it }, valueRange = 0.7f..2.0f)
+                Column {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("테두리 밝기", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "${(brightness * 100).roundToInt()}%",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Slider(
+                        value = brightness,
+                        onValueChange = { brightness = it; prefs.brightness = it },
+                        valueRange = 0.3f..1f,
+                    )
+                }
 
-        var overOnly by remember { mutableStateOf(prefs.overspeedOnly) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = overOnly, onCheckedChange = { overOnly = it; prefs.overspeedOnly = it })
-            Spacer(Modifier.width(8.dp))
-            Text("제한속도를 5km/h 넘을 때만 경고")
-        }
-        Text("끄면(기본) 단속카메라가 앞에 있을 때 항상 경고해요. 켜면 규정속도로 갈 때는 조용해요. 제한속도를 모르는 카메라는 항상 경고해요.",
-            style = MaterialTheme.typography.bodySmall)
+                val base = 10f * thickness
+                Column {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("테두리 두께", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "${base.roundToInt()}dp (과속 ${(30f * thickness).roundToInt()}dp)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Slider(
+                        value = thickness,
+                        onValueChange = { thickness = it; prefs.thickness = it },
+                        valueRange = 0.7f..2.0f,
+                    )
+                }
 
-        var chr by remember { mutableStateOf(prefs.character) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = chr, onCheckedChange = { chr = it; prefs.character = it })
-            Spacer(Modifier.width(8.dp))
-            Text("캐릭터 안내 (손가락 1·5·3)")
-        }
-        Text("거리 단계가 바뀔 때만 작게 2초 나왔다 사라져요. 터치는 그대로 지도로 통과해요.",
-            style = MaterialTheme.typography.bodySmall)
+                Column {
+                    Text("표시 위치", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    var edge by remember { mutableStateOf(prefs.edgeMode) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        listOf("sides" to "화면 좌우 양쪽", "all" to "사방 전체 테두리").forEach { (k, label) ->
+                            FilterChip(
+                                selected = edge == k,
+                                onClick = { edge = k; prefs.edgeMode = k },
+                                label = { Text(label, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) },
+                                modifier = Modifier.height(44.dp),
+                            )
+                        }
+                    }
+                }
 
-        var wake by remember { mutableStateOf(prefs.wakeScreen) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = wake, onCheckedChange = { wake = it; prefs.wakeScreen = it })
-            Spacer(Modifier.width(8.dp))
-            Text("화면이 꺼져 있으면 단속 접근 때 화면 켜기")
-        }
-        Text("화면이 꺼진 상태에서는 테두리를 보여줄 수 없어서, 단속 1km 앞에서 화면을 5초 켜요. 잠금 화면 위에는 안 보일 수 있어요.",
-            style = MaterialTheme.typography.bodySmall)
+                Column {
+                    Text("야간 눈부심 방지 (밤 모드)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "밤에는 테두리를 차분하게 어둡게 줄여(밝기 65%) 운전자의 눈부심을 막아줍니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("auto" to "자동(일몰~일출)", "on" to "항상 켬", "off" to "항상 끔").forEach { (k, label) ->
+                            FilterChip(
+                                selected = night == k,
+                                onClick = { night = k; prefs.nightMode = k },
+                                label = { Text(label, fontWeight = FontWeight.SemiBold) },
+                                modifier = Modifier.height(42.dp),
+                            )
+                        }
+                    }
+                }
 
-        var edge by remember { mutableStateOf(prefs.edgeMode) }
-        Text("표시 위치")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("sides" to "화면 좌우", "all" to "사방 테두리").forEach { (k, label) ->
-                FilterChip(selected = edge == k, onClick = { edge = k; prefs.edgeMode = k }, label = { Text(label) })
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
+                // 커스텀 색상 선택
+                var yellow by remember { mutableIntStateOf(prefs.yellowColor) }
+                var red by remember { mutableIntStateOf(prefs.redColor) }
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("원거리 알림 색상 (1km ~ 500m)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    ColorRow(
+                        listOf(0xFFFFC400, 0xFFC6FF00, 0xFFFF8A00, 0xFF00E5FF, 0xFFFFFFFF),
+                        yellow,
+                    ) { yellow = it; prefs.yellowColor = it }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("단속 임박 색상 (300m 이내)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    ColorRow(
+                        listOf(0xFFFF2A1A, 0xFFFF2D95, 0xFFFF6D00, 0xFFB388FF, 0xFFFFFFFF),
+                        red,
+                    ) { red = it; prefs.redColor = it }
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        yellow = 0xFFFFC400.toInt()
+                        red = 0xFFFF2A1A.toInt()
+                        prefs.yellowColor = yellow
+                        prefs.redColor = red
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("색상 기본값으로 복원 (노랑 / 빨강)")
+                }
             }
         }
 
-        var yellow by remember { mutableIntStateOf(prefs.yellowColor) }
-        var red by remember { mutableIntStateOf(prefs.redColor) }
-        Text("경고 색 ① 멀리 (1km~500m)")
-        ColorRow(listOf(0xFFFFC400, 0xFFC6FF00, 0xFFFF8A00, 0xFF00E5FF, 0xFFFFFFFF), yellow) { yellow = it; prefs.yellowColor = it }
-        Text("경고 색 ② 임박 (300m 안)")
-        ColorRow(listOf(0xFFFF2A1A, 0xFFFF2D95, 0xFFFF6D00, 0xFFB388FF, 0xFFFFFFFF), red) { red = it; prefs.redColor = it }
-        OutlinedButton(onClick = {
-            yellow = 0xFFFFC400.toInt(); red = 0xFFFF2A1A.toInt()
-            prefs.yellowColor = yellow; prefs.redColor = red
-        }) { Text("색 기본값으로 (노랑/빨강)") }
-        Text("바꾼 색은 시뮬 탭에서 바로 확인할 수 있어요. 시뮬레이션이 켜져 있으면 곧바로 반영돼요.",
-            style = MaterialTheme.typography.bodySmall)
+        // 2. 스마트 주행 옵션 그룹
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    "스마트 주행 안내 옵션",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
 
-        Text("밤 모드 (밤에는 색을 어둡게, 전체 밝기 65%)")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("auto" to "자동(일몰~일출)", "on" to "항상 켬", "off" to "끔").forEach { (k, label) ->
-                FilterChip(selected = night == k, onClick = { night = k; prefs.nightMode = k }, label = { Text(label) })
+                var overOnly by remember { mutableStateOf(prefs.overspeedOnly) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("과속할 때만 경고하기", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "제한속도를 5km/h 넘을 때만 테두리가 울려요. 규정속도 준수 중에는 화면이 조용합니다.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = overOnly, onCheckedChange = { overOnly = it; prefs.overspeedOnly = it })
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
+                var chr by remember { mutableStateOf(prefs.character) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("캐릭터 손가락 안내 (1·5·3)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "거리 단계가 바뀔 때 화면 가운데 귀여운 캐릭터가 2초간 손가락을 보여주고 쏙 들어가요. 터치는 방해하지 않아요.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = chr, onCheckedChange = { chr = it; prefs.character = it })
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
+                var wake by remember { mutableStateOf(prefs.wakeScreen) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("단속 접근 시 꺼진 화면 켜기", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "화면이 꺼져 있을 때 단속 1km 전방에 도달하면 화면을 5초간 켭니다.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = wake, onCheckedChange = { wake = it; prefs.wakeScreen = it })
+                }
             }
         }
-        HorizontalDivider()
-        Text("단속 피드백", style = MaterialTheme.typography.titleMedium)
+
+        // 3. 자동 실행 및 배터리 그룹
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(
+                    "차량 자동 연결 & 전원",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+
+                Text(
+                    "기본: 내 차 블루투스 연결 시 자동 시작, 연결 끊김 시 자동 종료\n" +
+                    (if (prefs.btName.isNotEmpty()) "현재 연결 차량: ${prefs.btName}" else "권한 탭에서 내 차 블루투스를 등록해 주세요."),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                var assist by remember { mutableStateOf(prefs.vehicleAssist) }
+                val arLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+                    if (ok) { prefs.vehicleAssist = true; assist = true; VehicleAssist.sync(ctx) }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("블루투스 없는 차량 보조 감지", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "충전기 연결 상태에서 차량 주행이 감지되면 자동 시작합니다. (배터리 사용량 증가 가능)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = assist, onCheckedChange = { on ->
+                        if (!on) { prefs.vehicleAssist = false; assist = false; VehicleAssist.sync(ctx) }
+                        else if (VehicleAssist.hasPermission(ctx)) { prefs.vehicleAssist = true; assist = true; VehicleAssist.sync(ctx) }
+                        else if (Build.VERSION.SDK_INT >= 29) arLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+                    })
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            ctx.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}")))
+                        } catch (_: Exception) {
+                            ctx.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                ) {
+                    Text("배터리 최적화 예외 등록 (백그라운드 유지)")
+                }
+            }
+        }
+
+        // 4. 단속 피드백 관리
         val fb = remember { com.nunppong.alert.core.CameraFeedback.get(ctx) }
         var fbCount by remember { mutableIntStateOf(fb.size) }
-        Text("카메라를 지나면 \"방금 단속 맞았나요?\" 알림이 와요. 👎를 누른 카메라는 그 진행방향에서 꺼요. 지금 ${fbCount}곳 꺼 둠.",
-            style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = { fb.clear(); fbCount = 0 }) { Text("피드백 모두 지우기") }
-        HorizontalDivider()
-        Text("자동 시작 방식", style = MaterialTheme.typography.titleMedium)
-        Text("기본: 내 차 블루투스 연결 → 자동 시작, 연결 끊김 → 종료" +
-            (if (prefs.btName.isNotEmpty()) "\n내 차: ${prefs.btName}" else "\n(권한 탭에서 내 차 블루투스를 선택해 주세요)"))
-
-        var assist by remember { mutableStateOf(prefs.vehicleAssist) }
-        val arLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-            if (ok) { prefs.vehicleAssist = true; assist = true; VehicleAssist.sync(ctx) }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = assist, onCheckedChange = { on ->
-                if (!on) { prefs.vehicleAssist = false; assist = false; VehicleAssist.sync(ctx) }
-                else if (VehicleAssist.hasPermission(ctx)) { prefs.vehicleAssist = true; assist = true; VehicleAssist.sync(ctx) }
-                else if (Build.VERSION.SDK_INT >= 29) arLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
-            })
-            Spacer(Modifier.width(8.dp))
-            Text("블루투스 없는 차용 (보조)")
-        }
-        Text("충전기가 연결된 상태에서 차량 이동이 감지되면 시작해요. 정확도가 낮고 배터리를 더 쓸 수 있어서 기본은 꺼져 있어요.",
-            style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = {
-            try {
-                ctx.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}")))
-            } catch (_: Exception) {
-                ctx.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "사용자 단속 피드백 관리",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    "카메라를 통과한 후 '방금 단속 맞았나요?' 알림에서 👎를 누른 카메라는 해당 주행 방향에서 다시는 알리지 않아요. 현재 ${fbCount}곳이 꺼져 있습니다.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = { fb.clear(); fbCount = 0 },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("꺼둔 카메라 피드백 모두 초기화")
+                }
             }
-        }) { Text("배터리 최적화 제외 (자동 시작이 잘 안 될 때)") }
+        }
     }
 }
 
-// ───────────── 시뮬레이션 ─────────────
+// ───────────── 시뮬레이션 화면 ─────────────
 @Composable
 fun SimulationScreen(refresh: Int, goPermissions: () -> Unit) {
     val ctx = LocalContext.current
@@ -336,41 +860,178 @@ fun SimulationScreen(refresh: Int, goPermissions: () -> Unit) {
     val running = status.mode == Mode.SIM
 
     Page {
-        Text("시뮬레이션", style = MaterialTheme.typography.headlineSmall)
-        Text("1.5km 앞에서 출발해 단속카메라를 지나가는 장면을 실제 오버레이로 보여줘요. " +
-            "시작한 뒤 홈 버튼을 눌러 다른 앱 위에서도 확인해 보세요. 속도는 달리는 중에도 바꿀 수 있어요.")
+        Text("주행 시뮬레이션", style = MaterialTheme.typography.headlineLarge)
+        Text(
+            "1.5km 전방에서 단속카메라에 접근하는 상황을 실제 테두리 오버레이와 캐릭터로 미리 체험해 보세요.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text(if (running) stageText(status) else "정지됨", style = MaterialTheme.typography.titleMedium)
-                if (running) Text("속도 ${status.speedKmh}km/h · 제한 ${limit}km/h")
+        // 대형 주행 계기판 카드
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    2.dp,
+                    if (status.overspeed) DangerRed
+                    else if (running) WarningYellow
+                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                    RoundedCornerShape(20.dp),
+                ),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        ) {
+            Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (running) "가상 주행 진행 중" else "시뮬레이션 대기 중",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (status.overspeed) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = DangerRed.copy(alpha = 0.15f),
+                        ) {
+                            Text(
+                                "🚨 과속 감지!",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = DangerRed,
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = if (running) stageText(status) else "시뮬레이션을 시작해 보세요",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (status.overspeed) DangerRed else MaterialTheme.colorScheme.onSurface,
+                )
+
+                if (running) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            "현재 속도: ${status.speedKmh} km/h",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            "제한 속도: ${limit} km/h",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
 
-        Text("내 속도  ${speed}km/h")
-        Slider(value = speed.toFloat(), onValueChange = { StatusRepo.simSpeedKmh.value = it.roundToInt() },
-            valueRange = 20f..140f)
-
-        Text("카메라 제한속도")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(60, 80, 100).forEach { v ->
-                FilterChip(selected = limit == v, onClick = { StatusRepo.simLimitKmh.value = v }, label = { Text("${v}km/h") })
+        // 속도 조절 슬라이더
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("내 주행 속도", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${speed} km/h",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Slider(
+                    value = speed.toFloat(),
+                    onValueChange = { StatusRepo.simSpeedKmh.value = it.roundToInt() },
+                    valueRange = 20f..140f,
+                )
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = fast, onCheckedChange = { StatusRepo.simFast.value = it })
-            Spacer(Modifier.width(8.dp))
-            Text("3배속 (빨리 보기)")
-        }
-        Text("300m 안에서 제한속도를 넘으면 테두리가 30dp로 두꺼워져요.", style = MaterialTheme.typography.bodySmall)
 
+        // 카메라 제한속도 선택
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("카메라 규정 제한속도", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    listOf(60, 80, 100).forEach { v ->
+                        FilterChip(
+                            selected = limit == v,
+                            onClick = { StatusRepo.simLimitKmh.value = v },
+                            label = { Text("${v} km/h", fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+                            modifier = Modifier.height(44.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        // 빠른 테스트 배속 옵션
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Row(
+                Modifier.padding(18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("3배속 빠른 재생", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("단속 구간 접근을 빠르게 확인합니다.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = fast, onCheckedChange = { StatusRepo.simFast.value = it })
+            }
+        }
+
+        // 제어 버튼
         if (!ready) {
-            Text("먼저 '권한' 탭에서 다른 앱 위 표시와 위치 권한을 허용해 주세요.")
-            Button(onClick = goPermissions) { Text("권한 설정하러 가기") }
+            Button(
+                onClick = goPermissions,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            ) {
+                Text("권한 허용 후 시뮬레이션 가능", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
         } else if (running) {
-            Button(onClick = { DrivingService.stop(ctx) }) { Text("시뮬레이션 종료") }
+            Button(
+                onClick = { DrivingService.stop(ctx) },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            ) {
+                Text("■ 시뮬레이션 종료", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
         } else {
-            Button(onClick = { DrivingService.startSim(ctx) }) { Text("시뮬레이션 시작") }
+            Button(
+                onClick = { DrivingService.startSim(ctx) },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            ) {
+                Text("▶ 시뮬레이션 시작 (홈 버튼을 눌러 확인해 보세요)", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -380,14 +1041,21 @@ private fun hm(ms: Long): String =
 
 @Composable
 private fun ColorRow(colors: List<Long>, selected: Int, onPick: (Int) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         colors.forEach { c ->
             val argb = c.toInt()
+            val isSelected = argb == selected
             Box(
-                Modifier.size(44.dp).clip(CircleShape).background(Color(argb))
-                    .border(if (argb == selected) 4.dp else 1.dp,
-                        if (argb == selected) Color.Black else Color.Gray, CircleShape)
-                    .clickable { onPick(argb) }
+                Modifier
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .background(Color(argb))
+                    .border(
+                        if (isSelected) 3.5.dp else 1.dp,
+                        if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                        CircleShape,
+                    )
+                    .clickable { onPick(argb) },
             )
         }
     }

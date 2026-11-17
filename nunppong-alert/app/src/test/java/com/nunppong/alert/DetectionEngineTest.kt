@@ -163,4 +163,16 @@ class DetectionEngineTest {
         assertTrue(CharacterStyle.scale(CharacterStyle.SHOW_MS - 50) < 0.3f)  // 쏙 들어간다
         assertEquals(0f, CharacterStyle.scale(CharacterStyle.SHOW_MS), 0.001f)
     }
+
+    @Test fun gpsJitterNear30mDoesNotEndAlertEarly() {
+        val e = DetectionEngine(grid(Camera(0, camLat, camLon, 80)))
+        val start = camLat - 1500 / mPerDeg
+        // 남은 거리 40m 지점까지 접근 후, 한 번 3m 물러난 것처럼 흔들린 fix, 이어서 계속 접근
+        var o = EngineOutput(Stage.HIDDEN, false, null, 0.0)
+        for (i in 0..73) o = e.update(fix(start + i * 20 / mPerDeg, camLon, i))
+        o = e.update(fix(start + (73 * 20 - 3) / mPerDeg, camLon, 74))   // 약 43m, 3m 되돌아감(흔들림)
+        o = e.update(fix(start + 75 * 20 / mPerDeg, camLon, 75))
+        assertEquals(Stage.S3, o.stage)
+        assertNull(e.takePassed())
+    }
 }
