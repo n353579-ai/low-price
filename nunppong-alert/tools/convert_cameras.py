@@ -31,7 +31,7 @@ def read_rows(path):
 
 def find_col(header, *needles, exclude=()):
     for i, h in enumerate(header):
-        h = h.strip().replace(" ", "")
+        h = h.strip().replace(" ", "").lower()
         if any(n in h for n in needles) and not any(x in h for x in exclude):
             return i
     return None
@@ -77,8 +77,8 @@ def main(argv):
     header = rows[0]
     c_lat = find_col(header, "위도", "latitude", "lat")
     c_lon = find_col(header, "경도", "longitude", "lon")
-    c_lim = find_col(header, "제한속도", "limit")
-    c_kind = find_col(header, "단속구분", "단속유형", "단속종류")
+    c_lim = find_col(header, "제한속도", "limit", "lmtt")
+    c_kind = find_col(header, "단속구분", "단속유형", "단속종류", "regltse")
     c_brg = find_col(header, "방향각", "bearing", "azimuth")
     if c_lat is None or c_lon is None:
         print("위도/경도 컬럼을 찾지 못했습니다. 헤더:", header)
