@@ -4,11 +4,6 @@ on:
   schedule:
     - cron: "0 19 1 * *"   # 매월 2일 새벽(한국시간) 4시
   workflow_dispatch:
-  push:   # 시험용: 이 파일/도구를 고치면 한 번 실행 (main에 합친 뒤에는 지워도 됨)
-    paths:
-      - ".github/workflows/update-cameras.yml"
-      - "nunppong-alert/tools/fetch_cameras.py"
-      - "nunppong-alert/tools/convert_cameras.py"
 
 permissions:
   contents: write
@@ -21,8 +16,6 @@ jobs:
         working-directory: nunppong-alert
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ccr-e052adbf-342hy5
 
       - name: Fetch from data.go.kr
         env:
