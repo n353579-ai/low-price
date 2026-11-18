@@ -298,7 +298,7 @@ fun HomeScreen(refresh: Int, goPermissions: () -> Unit) {
                     text = when (cams) {
                         null -> "단속카메라 데이터를 확인하는 중입니다…"
                         0 -> "단속카메라 데이터가 비어 있습니다. 공공데이터를 확인해 주세요."
-                        else -> "전국 단속카메라 ${cams}개 탑재 완료 (오프라인 동작)"
+                        else -> "전국 단속카메라 ${cams}개 탑재 완료 (오프라인 동작) · 도로 정보 © OpenStreetMap contributors"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,

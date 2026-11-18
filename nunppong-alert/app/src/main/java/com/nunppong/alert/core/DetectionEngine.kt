@@ -4,7 +4,9 @@ package com.nunppong.alert.core
  * 단속카메라 판단 로직 (순수 Kotlin, 1초마다 GPS fix 입력).
  *
  * 1. 주변 격자 9칸 후보 조회
- * 2. 내 진행방향(bearing) ±30° 이내의 앞쪽 카메라만 남김 (카메라 방향각이 있으면 그것도 ±30°)
+ * 2. 도로 선이 있는 카메라: 내가 그 선 위를 카메라 쪽으로 달릴 때 인정 (남은 거리는 도로를 따라 잼).
+ *    선과 안 맞으면 300m 안 바로 정면일 때만 인정 (안전망).
+ *    도로 선이 없는 카메라: 내 진행방향 ±30° 이내의 앞쪽 카메라만 (예전 방식)
  * 3. 직전보다 거리가 줄어든 카메라만 인정, 가장 가까운 하나로 단계 결정
  * 4. 속도 10km/h 미만이면 직전 결과 유지
  * 5. 단계 변경은 2회 연속 같은 결과일 때만
@@ -24,6 +26,13 @@ class DetectionEngine(
         /** 내 진행선에서 옆으로 허용하는 거리: 25m + 거리의 7% (1km 앞이면 약 95m). 도로 정보가 없어서 진행선으로 대신한다. */
         const val LATERAL_BASE_M = 25.0
         const val LATERAL_PER_M = 0.07
+        /** 도로 선 맞추기: 선에서 옆으로 이 이내(넓은 도로 바깥 차선 + GPS 오차), 진행방향은 선 방향과 이 각도 이내 */
+        const val PATH_LATERAL_M = 30.0
+        const val PATH_ANGLE = 45.0
+        /** 안전망: 도로 선과 안 맞아도 이 거리 안에서 바로 정면(각도·옆거리 이내)이면 알린다 */
+        const val NET_M = 300.0
+        const val NET_ANGLE = 20.0
+        const val NET_LATERAL_M = 20.0
         const val PASS_RADIUS_M = 50.0
         /** 통과 판정 여유: GPS 흔들림(몇 m)으로 거리가 잠깐 늘어도 통과로 보지 않는다 */
         const val PASS_MARGIN_M = 5.0
@@ -42,6 +51,16 @@ class DetectionEngine(
     private var heading = -1.0
     private var last = EngineOutput(Stage.HIDDEN, false, null, 0.0)
     private var passed: PassEvent? = null
+
+    /** 카메라의 도로 선들 중 내가 올라타 있는 선의 남은 거리(가장 짧은 것), 없으면 null */
+    private fun matchPath(c: Camera, lat: Double, lon: Double): Double? {
+        var best: Double? = null
+        for (p in c.paths) {
+            val r = p.matchRemaining(lat, lon, heading, PATH_LATERAL_M, PATH_ANGLE) ?: continue
+            if (best == null || r < best) best = r
+        }
+        return best
+    }
 
     /** 방금 통과한 카메라 (한 번 꺼내면 비워진다). 피드백 질문용. */
     fun takePassed(): PassEvent? = passed.also { passed = null }
@@ -78,31 +97,52 @@ class DetectionEngine(
             val d = Geo.distanceM(fix.lat, fix.lon, c.lat, c.lon)
             val prev = lastDist[c.id]
             newDist[c.id] = d
+            // 도로 선 위에서 카메라까지 아직 한참(100m 초과) 남았으면, 직선거리로 50m 안을 스쳐도
+            // '통과'로 보지 않는다 (회전 램프·굽은 길이 카메라 옆을 지나갔다가 돌아오는 경우).
+            val roadRemain = if (c.paths.isNotEmpty()) matchPath(c, fix.lat, fix.lon) else null
+            val stillApproaching = roadRemain != null && roadRemain > 2 * PASS_RADIUS_M
+            if (stillApproaching) inside50.remove(c.id)
             val wasInside = inside50.contains(c.id)
 
             // 6) 통과 처리: 50m 안에 들어온 뒤 거리가 다시 늘면 30초 무시
-            if (inside50.contains(c.id) && prev != null && d > prev + PASS_MARGIN_M) {
+            if (wasInside && prev != null && d > prev + PASS_MARGIN_M) {
                 inside50.remove(c.id)
                 ignoreUntil[c.id] = now + IGNORE_MS
                 passed = PassEvent(c, heading)
                 continue
             }
-            if (d < PASS_RADIUS_M) inside50.add(c.id)
+            if (d < PASS_RADIUS_M && !stillApproaching) inside50.add(c.id)
             if (d > 1000.0) continue
 
-            // 3) 직전보다 가까워진 카메라만
-            if (prev == null || d >= prev) continue
+            // 2a) 도로 선이 있는 카메라: 내가 그 선 위를 카메라 쪽으로 달리고 있으면 인정.
+            //     남은 거리는 도로를 따라 잰다 (커브에서도 정확).
+            var eff = d
+            val onRoad = if (!wasInside) roadRemain else null
+            if (onRoad != null) {
+                if (onRoad > 1000.0) continue   // 도로를 따라 1km 넘게 남았으면 아직 알리지 않는다
+                eff = onRoad
+            } else {
+                // 3) 직전보다 가까워진 카메라만
+                if (prev == null || d >= prev) continue
 
-            // 2) 진행방향 필터 (50m 안에서는 방위가 흔들리므로, 이미 접근해 들어온 카메라만 생략)
-            if (!wasInside) {
-                val toCam = Geo.bearingDeg(fix.lat, fix.lon, c.lat, c.lon)
-                val diff = Geo.angleDiff(heading, toCam)
-                if (diff > MAX_ANGLE) continue
-                if (d * Math.sin(Math.toRadians(diff)) > LATERAL_BASE_M + LATERAL_PER_M * d) continue
-                if (c.bearing >= 0 && Geo.angleDiff(heading, c.bearing.toDouble()) > CAMERA_BEARING_TOL) continue
+                // 2) 진행방향 필터 (50m 안에서는 방위가 흔들리므로, 이미 접근해 들어온 카메라만 생략)
+                if (!wasInside) {
+                    val toCam = Geo.bearingDeg(fix.lat, fix.lon, c.lat, c.lon)
+                    val diff = Geo.angleDiff(heading, toCam)
+                    val lateral = d * Math.sin(Math.toRadians(diff))
+                    if (c.paths.isNotEmpty()) {
+                        // 2b) 안전망: 도로 선과 안 맞아도(도로 정보가 틀렸을 수 있음) 바로 정면 가까이에 있으면 알린다.
+                        if (d > NET_M || diff > NET_ANGLE || lateral > NET_LATERAL_M) continue
+                    } else {
+                        // 2c) 도로 정보가 없는 카메라: 예전 방식 (진행선 기준)
+                        if (diff > MAX_ANGLE) continue
+                        if (lateral > LATERAL_BASE_M + LATERAL_PER_M * d) continue
+                    }
+                    if (c.bearing >= 0 && Geo.angleDiff(heading, c.bearing.toDouble()) > CAMERA_BEARING_TOL) continue
+                }
             }
-            if (d < bestD) {
-                bestD = d
+            if (eff < bestD) {
+                bestD = eff
                 best = c
             }
         }

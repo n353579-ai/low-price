@@ -232,4 +232,96 @@ class DetectionEngineTest {
         assertTrue(run(180 + 40, 180f) != Stage.HIDDEN) // 커브로 40° 어긋나도 울린다
         assertTrue(run(-1, 180f) != Stage.HIDDEN)       // 방향 모르면 예전처럼 울린다
     }
+
+    // ---------- 도로 선(접근 경로) 맞추기 ----------
+
+    private val lonPerM get() = 1.0 / (mPerDeg * Math.cos(Math.toRadians(camLat)))
+
+    /** (북쪽 m, 동쪽 m) 로 적은 점들을 카메라 기준 좌표로 바꿔 P 줄을 만든다. 마지막 점이 카메라 위치. */
+    private fun pathLine(vararg ne: Pair<Double, Double>): String {
+        val q = ne.map { (n, e) ->
+            Pair(Math.round((camLat + n / mPerDeg) * 1e5), Math.round((camLon + e * lonPerM) * 1e5))
+        }
+        val sb = StringBuilder("P ${q[0].first} ${q[0].second}")
+        for (k in 1 until q.size) sb.append(" ${q[k].first - q[k - 1].first} ${q[k].second - q[k - 1].second}")
+        return sb.toString()
+    }
+
+    private fun gridWithPaths(bearing: Int, vararg paths: String): CameraGrid {
+        val lines = arrayListOf(
+            "G ${Math.floor(camLat * 100).toInt()} ${Math.floor(camLon * 100).toInt()}",
+            "C $camLat $camLon 80 $bearing",
+        )
+        lines += paths
+        return CameraGrid.parse(lines.asSequence())
+    }
+
+    private fun at(n: Double, e: Double, i: Int, bearing: Float) =
+        fix(camLat + n / mPerDeg, camLon + e * lonPerM, i, bearing = bearing)
+
+    @Test fun pathLineIsParsed() {
+        val g = gridWithPaths(-1, pathLine(-400.0 to -600.0, -400.0 to 0.0, 0.0 to 0.0))
+        val c = g.near(camLat, camLon).single()
+        assertEquals(1, c.paths.size)
+        assertEquals(1000.0, c.paths[0].lengthM, 5.0)
+    }
+
+    @Test fun curvedRoadIsFollowedAndDistanceIsAlongRoad() {
+        // 도로: 동쪽으로 600m 달린 뒤 좌회전해 북쪽으로 400m 가면 카메라 (ㄴ자). 직선 방향으로는 카메라가 정면이 아니다.
+        val e = DetectionEngine(gridWithPaths(-1, pathLine(-400.0 to -600.0, -400.0 to 0.0, 0.0 to 0.0)))
+        val out = ArrayList<EngineOutput>()
+        for (i in 0..30) out += e.update(at(-400.0, -600.0 + 20.0 * i, i, 90f))       // 동쪽으로
+        for (i in 31..47) out += e.update(at(-400.0 + 20.0 * (i - 30), 0.0, i, 0f))     // 북쪽으로
+        assertEquals(Stage.S1, out[10].stage)                 // 도로 따라 800m 남음 (직선 방향은 39° 어긋남)
+        assertEquals(800.0, out[10].distanceM!!, 10.0)        // 남은 거리는 직선(566m)이 아니라 도로 거리
+        assertEquals(Stage.S2, out[28].stage)                 // 440m
+        assertEquals(Stage.S3, out[45].stage)                 // 100m
+    }
+
+    @Test fun parallelRoadDoesNotAlert() {
+        // 카메라 도로는 남->북 직선. 나는 60m 옆의 나란한 다른 도로를 같은 방향으로 달린다.
+        val road = pathLine(-1100.0 to 0.0, 0.0 to 0.0)
+        val e = DetectionEngine(gridWithPaths(-1, road))
+        for (i in 0..80) {
+            val o = e.update(at(-1500.0 + 20.0 * i, 60.0, i, 0f))
+            assertEquals("i=$i", Stage.HIDDEN, o.stage)
+        }
+        // 같은 주행을 도로 선 없는 카메라(예전 방식)로 하면 울린다 = 이번 변경으로 없어지는 오탐
+        val old = DetectionEngine(grid(Camera(0, camLat, camLon, 80)))
+        val outs = (0..60).map { i -> old.update(at(-1500.0 + 20.0 * i, 60.0, i, 0f)) }
+        assertTrue(outs.any { it.stage != Stage.HIDDEN })
+    }
+
+    @Test fun safetyNetAlertsWhenRoadDataIsWrong() {
+        // 도로 선이 엉뚱한 도로(동서 방향)로 잡혀 있어도, 카메라가 바로 정면 300m 안이면 알린다.
+        val wrong = pathLine(0.0 to 1000.0, 0.0 to 0.0)
+        val e = DetectionEngine(gridWithPaths(-1, wrong))
+        val out = drive(e, upTo = 70)
+        assertEquals(Stage.HIDDEN, out[45].stage)             // 600m: 도로 선과 안 맞아 조용
+        assertEquals(Stage.S3, out[66].stage)                 // 180m: 안전망
+    }
+
+    @Test fun oppositeDirectionOnOneWayPath() {
+        // 도로 선은 남->북 접근만 있다. 나는 북쪽에서 남쪽으로(반대 차선) 달려온다.
+        val road = pathLine(-1100.0 to 0.0, 0.0 to 0.0)
+        fun run(bearing: Int): List<EngineOutput> {
+            val e = DetectionEngine(gridWithPaths(bearing, road))
+            return (0..70).map { i -> e.update(at(1500.0 - 20.0 * i, 0.0, i, 180f)) }
+        }
+        val unknown = run(-1)                                  // 방향 모름: 멀리서는 조용, 300m 안전망만
+        assertEquals(Stage.HIDDEN, unknown[45].stage)
+        assertEquals(Stage.S3, unknown[66].stage)
+        assertTrue(run(0).all { it.stage == Stage.HIDDEN })    // 방향 확정(북행 단속): 반대 차선은 끝까지 조용
+    }
+
+    @Test fun sameRoadStillAlertsFromOneKm() {
+        val road = pathLine(-1100.0 to 0.0, 0.0 to 0.0)
+        val e = DetectionEngine(gridWithPaths(-1, road))
+        val out = drive(e, upTo = 95)
+        assertEquals(Stage.HIDDEN, out[10].stage)
+        assertEquals(Stage.S1, out[35].stage)
+        assertEquals(Stage.S2, out[55].stage)
+        assertEquals(Stage.S3, out[65].stage)
+        assertEquals(Stage.HIDDEN, out[95].stage)             // 통과 후
+    }
 }

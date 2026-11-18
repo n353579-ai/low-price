@@ -51,15 +51,16 @@ class Roads(osmium.SimpleHandler):
         pts = []
         for n in w.nodes:
             if n.location.valid():
-                pts.append((n.location.lat, n.location.lon))
-        for a, b in zip(pts, pts[1:]):
+                pts.append((n.location.lat, n.location.lon, n.ref))
+        for pa, pb in zip(pts, pts[1:]):
+            a, b, na, nb = pa[:2], pb[:2], pa[2], pb[2]
             if a != b:
-                self.segs.append((a[0], a[1], b[0], b[1], one))
+                self.segs.append((a[0], a[1], b[0], b[1], one, na, nb))
 
 
 def build_index(segs):
     idx = defaultdict(list)
-    for i, (la1, lo1, la2, lo2, _) in enumerate(segs):
+    for i, (la1, lo1, la2, lo2, *_) in enumerate(segs):
         y0, y1 = sorted((int(la1 / CELL), int(la2 / CELL)))
         x0, x1 = sorted((int(lo1 / CELL), int(lo2 / CELL)))
         for y in range(y0, y1 + 1):
@@ -70,7 +71,7 @@ def build_index(segs):
 
 def seg_dist_and_bearing(seg, lat, lon):
     """카메라(lat,lon)에서 구간까지 거리(m)와 구간의 진행 방위각(0~360, 정방향 기준)."""
-    la1, lo1, la2, lo2, _ = seg
+    la1, lo1, la2, lo2 = seg[:4]
     mx = M_LAT * math.cos(math.radians(lat))
     ax, ay = (lo1 - lon) * mx, (la1 - lat) * M_LAT
     bx, by = (lo2 - lon) * mx, (la2 - lat) * M_LAT
@@ -101,35 +102,35 @@ def assign(segs, idx, lat, lon):
     for i in cand:
         d, brg, side = seg_dist_and_bearing(segs[i], lat, lon)
         if d <= SNAP_M:
-            best.append((d, brg, segs[i][4], side))
+            best.append((d, brg, segs[i][4], side, i))
     if not best:
-        return -1, "no_road"
+        return -1, "no_road", None
     best.sort()
-    d0, b0, one0, side0 = best[0]
+    d0, b0, one0, side0, i0 = best[0]
     if one0 == 0:
         # 양방향 도로: 카메라는 단속하는 차선 쪽 길가에 서 있는 경우가 대부분이다
         # (방향이 확실한 도로 8천여 개로 검증: 10m 이상 떨어지면 96% 일치).
         if abs(side0) < SIDE_M:
-            return -1, "two_way"
-        for d, brg, one, _ in best[1:]:
+            return -1, "two_way", i0
+        for d, brg, one, _, _ in best[1:]:
             if d - d0 > AMBIG_M:
                 break
             if one != 0 or min(angle_diff(brg, b0), 180.0 - angle_diff(brg, b0)) > 30.0:
-                return -1, "ambiguous"
+                return -1, "ambiguous", i0
         # 진행방향 b0 기준 카메라가 오른쪽(side>0)에 있으면 b0 방향 차량을 단속 (우측통행)
         # side 부호: 카메라가 원점일 때 구간이 카메라 왼쪽을 지나면 +  -> 카메라는 구간 오른쪽
-        return (int(round(b0)) if side0 > 0 else int(round((b0 + 180.0) % 360.0))) % 360, "side"
+        return (int(round(b0)) if side0 > 0 else int(round((b0 + 180.0) % 360.0))) % 360, "side", i0
     f0 = (b0 if one0 == 1 else (b0 + 180.0) % 360.0)
     # 거의 같은 거리에 반대 방향 일방통행/양방향 도로가 있으면 헷갈리는 경우
-    for d, brg, one, _ in best[1:]:
+    for d, brg, one, _, _ in best[1:]:
         if d - d0 > AMBIG_M:
             break
         if one == 0:
-            return -1, "ambiguous"
+            return -1, "ambiguous", i0
         f = brg if one == 1 else (brg + 180.0) % 360.0
         if angle_diff(f, f0) > 90.0:
-            return -1, "ambiguous"
-    return int(round(f0)) % 360, "ok"
+            return -1, "ambiguous", i0
+    return int(round(f0)) % 360, "ok", i0
 
 
 def main(argv):
@@ -152,7 +153,7 @@ def main(argv):
         if ln.startswith("C "):
             p = ln.split()
             lat, lon, lim = float(p[1]), float(p[2]), p[3]
-            brg, why = assign(segs, idx, lat, lon)
+            brg, why, _i = assign(segs, idx, lat, lon)
             stats[why] += 1
             out.append(f"C {p[1]} {p[2]} {lim} {brg}")
         else:
