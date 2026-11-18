@@ -19,6 +19,9 @@ class DetectionEngine(
     companion object {
         const val MIN_SPEED_KMH = 10.0
         const val MAX_ANGLE = 30.0
+        /** 내 진행선에서 옆으로 허용하는 거리: 25m + 거리의 7% (1km 앞이면 약 95m). 도로 정보가 없어서 진행선으로 대신한다. */
+        const val LATERAL_BASE_M = 25.0
+        const val LATERAL_PER_M = 0.07
         const val PASS_RADIUS_M = 50.0
         /** 통과 판정 여유: GPS 흔들림(몇 m)으로 거리가 잠깐 늘어도 통과로 보지 않는다 */
         const val PASS_MARGIN_M = 5.0
@@ -91,7 +94,9 @@ class DetectionEngine(
             // 2) 진행방향 필터 (50m 안에서는 방위가 흔들리므로, 이미 접근해 들어온 카메라만 생략)
             if (!wasInside) {
                 val toCam = Geo.bearingDeg(fix.lat, fix.lon, c.lat, c.lon)
-                if (Geo.angleDiff(heading, toCam) > MAX_ANGLE) continue
+                val diff = Geo.angleDiff(heading, toCam)
+                if (diff > MAX_ANGLE) continue
+                if (d * Math.sin(Math.toRadians(diff)) > LATERAL_BASE_M + LATERAL_PER_M * d) continue
                 if (c.bearing >= 0 && Geo.angleDiff(heading, c.bearing.toDouble()) > MAX_ANGLE) continue
             }
             if (d < bestD) {

@@ -42,6 +42,7 @@ class LockScreenAlertActivity : Activity() {
                 st.stage, st.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness,
                 prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character,
                 AlertStyle.proximity(st.distanceM?.toDouble()), prefs.spread,
+                AlertStyle.calmLimit(prefs.calmMode, st.limit, st.speedKmh.toDouble()), st.distanceM ?: -1,
             )
             handler.postDelayed(this, 300)
         }

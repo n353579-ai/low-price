@@ -194,4 +194,26 @@ class DetectionEngineTest {
         assertEquals(band * 1.6f, AlertStyle.glowPx(band, screen, 1f, 0f), 0.001f)
         assertTrue(AlertStyle.glowPeakAlpha(1f, 1.5f) <= 0.85f)
     }
+
+    @Test fun cameraOffToTheSideOfMyPathIsIgnored() {
+        // 북쪽으로 달리는데 카메라는 진행선에서 동쪽으로 150m 떨어진 곳 (800m 앞) -> 예전엔 각도(약 11°)만 봐서 울렸다
+        val e = DetectionEngine(grid(Camera(0, camLat, camLon + 150 / (mPerDeg * Math.cos(Math.toRadians(camLat))), 80)))
+        val out = drive(e, upTo = 75)
+        assertTrue(out.all { it.stage == Stage.HIDDEN })
+    }
+
+    @Test fun cameraNearMyPathStillDetected() {
+        // 진행선에서 10m 옆(같은 도로의 다른 차선 정도)은 그대로 감지
+        val e = DetectionEngine(grid(Camera(0, camLat, camLon + 10 / (mPerDeg * Math.cos(Math.toRadians(camLat))), 80)))
+        val out = drive(e, upTo = 65)
+        assertEquals(Stage.S3, out[65].stage)
+    }
+
+    @Test fun calmLimitOnlyWhenKnownAndObeying() {
+        assertEquals(80, AlertStyle.calmLimit(true, 80, 70.0))
+        assertEquals(80, AlertStyle.calmLimit(true, 80, 80.0))
+        assertEquals(0, AlertStyle.calmLimit(true, 80, 81.0))   // 넘으면 깜빡임으로
+        assertEquals(0, AlertStyle.calmLimit(true, 0, 50.0))    // 제한속도 모르면 항상 경고
+        assertEquals(0, AlertStyle.calmLimit(false, 80, 50.0))  // 옵션 끄면 예전처럼
+    }
 }

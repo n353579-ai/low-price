@@ -757,12 +757,27 @@ fun SettingsScreen() {
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
 
+                var calm by remember { mutableStateOf(prefs.calmMode) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("지키는 중이면 큰 숫자로", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "제한속도를 알고 지키는 중이면 깜빡이지 않고 화면 위쪽에 제한속도를 큰 숫자로 보여줘요. 제한속도를 넘으면 그때부터 깜빡여요. 제한속도를 모르는 카메라는 항상 깜빡여요.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = calm, onCheckedChange = { calm = it; prefs.calmMode = it })
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
                 var chr by remember { mutableStateOf(prefs.character) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("캐릭터 손가락 안내 (1·5·3)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "거리 단계가 바뀔 때 화면 가운데 귀여운 캐릭터가 2초간 손가락을 보여주고 쏙 들어가요. 터치는 방해하지 않아요.",
+                            "거리 단계가 바뀔 때 화면 가득 귀여운 캐릭터가 2초간 손가락을 보여주고 쏙 들어가요. 터치는 방해하지 않아요.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
