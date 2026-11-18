@@ -23,7 +23,8 @@ data class Camera(
  * 카메라 앞 도로 선 (접근 순서의 점들, 마지막 점이 카메라가 붙은 도로 위 위치).
  * 지도 대신 쓰는 최소한의 도로 정보: '내가 이 선 위를 카메라 쪽으로 달리고 있나' 만 판단한다.
  */
-class CamPath(val lat: DoubleArray, val lon: DoubleArray) {
+class CamPath(val lat: DoubleArray, val lon: DoubleArray, val rangeM: Double = Double.MAX_VALUE) {
+    /** rangeM: 카메라까지 이 거리 이내일 때만 알린다 (방향이 확실하지 않은 쪽 접근 경로는 짧게). */
     /** 각 점에서 카메라(마지막 점)까지 도로를 따라 남은 거리(m) */
     private val remain = DoubleArray(lat.size)
 

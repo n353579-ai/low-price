@@ -34,7 +34,7 @@ jobs:
           # 카메라마다 '카메라 앞 도로 선'을 OpenStreetMap 에서 뽑아 붙인다 (앱이 도로 위에 있는지 판단하는 데 씀)
           pip install --quiet osmium numpy
           curl -sSL --fail -o /tmp/korea.osm.pbf https://download.geofabrik.de/asia/south-korea-latest.osm.pbf
-          python3 tools/build_paths.py /tmp/korea.osm.pbf /tmp/new.grid.txt
+          python3 tools/build_paths.py /tmp/korea.osm.pbf /tmp/new.grid.txt --csv=/tmp/cameras.csv
           withpath=$(awk '/^C /{c=1} /^P /{if(c){n++; c=0}} END{print n+0}' /tmp/new.grid.txt)
           echo "cameras with road line=$withpath"
           if [ "$withpath" -lt $((new * 9 / 10)) ]; then
