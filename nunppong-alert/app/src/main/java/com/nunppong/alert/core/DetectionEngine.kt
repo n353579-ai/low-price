@@ -19,6 +19,8 @@ class DetectionEngine(
     companion object {
         const val MIN_SPEED_KMH = 10.0
         const val MAX_ANGLE = 30.0
+        /** 카메라 방향각(도로에서 계산)과 내 진행방향이 이 이내여야 한다. 급커브를 위해 조금 넓게. */
+        const val CAMERA_BEARING_TOL = 45.0
         /** 내 진행선에서 옆으로 허용하는 거리: 25m + 거리의 7% (1km 앞이면 약 95m). 도로 정보가 없어서 진행선으로 대신한다. */
         const val LATERAL_BASE_M = 25.0
         const val LATERAL_PER_M = 0.07
@@ -97,7 +99,7 @@ class DetectionEngine(
                 val diff = Geo.angleDiff(heading, toCam)
                 if (diff > MAX_ANGLE) continue
                 if (d * Math.sin(Math.toRadians(diff)) > LATERAL_BASE_M + LATERAL_PER_M * d) continue
-                if (c.bearing >= 0 && Geo.angleDiff(heading, c.bearing.toDouble()) > MAX_ANGLE) continue
+                if (c.bearing >= 0 && Geo.angleDiff(heading, c.bearing.toDouble()) > CAMERA_BEARING_TOL) continue
             }
             if (d < bestD) {
                 bestD = d

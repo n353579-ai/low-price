@@ -216,4 +216,20 @@ class DetectionEngineTest {
         assertEquals(0, AlertStyle.calmLimit(true, 0, 50.0))    // 제한속도 모르면 항상 경고
         assertEquals(0, AlertStyle.calmLimit(false, 80, 50.0))  // 옵션 끄면 예전처럼
     }
+
+    @Test fun cameraBearingBlocksOppositeLaneButAllowsCurves() {
+        val mPerDeg = 111320.0
+        val camLat = 37.5; val camLon = 127.0
+        fun run(camBearing: Int, myHeading: Float): Stage {
+            val e = DetectionEngine(grid(Camera(0, camLat, camLon, 80, bearing = camBearing)))
+            val start = camLat + 900 / mPerDeg
+            var o = e.update(fix(start, camLon, 0, bearing = myHeading))
+            for (i in 1..30) o = e.update(fix(start - i * 20 / mPerDeg, camLon, i, bearing = myHeading))
+            return o.stage
+        }
+        assertEquals(Stage.HIDDEN, run(0, 180f))       // 반대 방향 단속 카메라: 울리지 않는다
+        assertTrue(run(180, 180f) != Stage.HIDDEN)      // 같은 방향: 울린다
+        assertTrue(run(180 + 40, 180f) != Stage.HIDDEN) // 커브로 40° 어긋나도 울린다
+        assertTrue(run(-1, 180f) != Stage.HIDDEN)       // 방향 모르면 예전처럼 울린다
+    }
 }
