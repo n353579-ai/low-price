@@ -24,6 +24,8 @@ class BorderOverlayView(context: Context) : View(context) {
     private var red = AlertStyle.RED_DAY
     private var lastPhase: AlertStyle.Phase? = null
     private var charOn = false
+    private var calmLimit = 0
+    private var distM = -1
     private var proximity = 0f
     private var spread = 1f
     private var charStage = Stage.HIDDEN
@@ -60,7 +62,10 @@ class BorderOverlayView(context: Context) : View(context) {
         stage: Stage, overspeed: Boolean, night: Boolean, brightness: Float, thickness: Float,
         sidesOnly: Boolean = false, yellow: Int = AlertStyle.YELLOW_DAY, red: Int = AlertStyle.RED_DAY,
         character: Boolean = false, proximity: Float = 0f, spread: Float = 1f,
+        calmLimit: Int = 0, distanceM: Int = -1,
     ) {
+        this.calmLimit = calmLimit
+        this.distM = distanceM
         this.proximity = proximity
         this.spread = spread
         charOn = character
@@ -95,17 +100,52 @@ class BorderOverlayView(context: Context) : View(context) {
     private fun charShowing() = charOn && SystemClock.uptimeMillis() - charStart < CharacterStyle.SHOW_MS
 
     override fun onDraw(canvas: Canvas) {
-        drawBorder(canvas)
+        if (calmLimit <= 0) drawBorder(canvas) else drawSign(canvas)
         drawCharacter(canvas)
     }
 
-    /** 화면 아래쪽 가운데에 작게(약 80dp), 2초 동안 부드럽게 나타났다 사라진다. 터치는 통과. */
+    private val signText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+    }
+
+    /** 제한속도를 지키는 중: 깜빡임 없이 화면 위쪽에 큰 속도 표지판(제한속도)과 남은 거리를 보여준다. */
+    private fun drawSign(canvas: Canvas) {
+        if (stage == Stage.HIDDEN) return
+        val d = resources.displayMetrics.density
+        val dim = brightness * (if (night) AlertStyle.NIGHT_FACTOR else 1f)
+        val a = (255 * dim).toInt().coerceIn(0, 255)
+        val r = 95f * d
+        val cx = width / 2f
+        val cy = height * 0.22f
+        fill.color = 0xFFFFFFFF.toInt(); fill.alpha = a
+        canvas.drawCircle(cx, cy, r, fill)
+        paint.color = 0xFFE53935.toInt(); paint.alpha = a
+        paint.strokeWidth = 16f * d
+        canvas.drawCircle(cx, cy, r - 8f * d, paint)
+        signText.color = 0xFF111111.toInt(); signText.alpha = a
+        signText.textSize = (if (calmLimit >= 100) 64f else 78f) * d
+        canvas.drawText(calmLimit.toString(), cx, cy + signText.textSize * 0.35f, signText)
+        if (distM >= 0) {
+            val label = (if (distM >= 1000) String.format(java.util.Locale.US, "%.1fkm", distM / 1000f) else "${(distM / 10) * 10}m")
+            text.textSize = 34f * d
+            val tw = text.measureText(label)
+            rect.set(cx - tw / 2 - 16 * d, cy + r + 8 * d, cx + tw / 2 + 16 * d, cy + r + 8 * d + 48 * d)
+            fill.color = 0xFF000000.toInt(); fill.alpha = (a * 0.75f).toInt()
+            canvas.drawRoundRect(rect, 24 * d, 24 * d, fill)
+            text.alpha = a
+            canvas.drawText(label, cx, rect.bottom - 11 * d, text)
+        }
+    }
+
+    /** 화면에 꽉 차게(폭의 90%) 2초 동안 톡 튀어나왔다 쏙 들어간다. 터치는 통과. */
     private fun drawCharacter(canvas: Canvas) {
         if (!charOn || charStage == Stage.HIDDEN) return
         val a = CharacterStyle.alpha(SystemClock.uptimeMillis() - charStart)
         if (a <= 0f) return
         val d = resources.displayMetrics.density
-        val size = 80f * d
+        val size = minOf(width, height) * 0.9f
+        val k = size / (80f * d)
         val cx = width / 2f
         val cy = height * 0.5f
         val sc = CharacterStyle.scale(SystemClock.uptimeMillis() - charStart)
@@ -137,7 +177,7 @@ class BorderOverlayView(context: Context) : View(context) {
         fill.color = skin
         fill.alpha = alpha
         canvas.drawRoundRect(rect, size * 0.16f, size * 0.16f, fill)
-        paint.strokeWidth = 2f * d
+        paint.strokeWidth = 2f * d * k
         paint.color = line
         paint.alpha = alpha
         canvas.drawRoundRect(rect, size * 0.16f, size * 0.16f, paint)
@@ -155,14 +195,14 @@ class BorderOverlayView(context: Context) : View(context) {
         }
         // 거리 글자 (어두운 알약 위에 흰 글씨 - 어떤 지도 위에서도 보이게)
         val label = CharacterStyle.label(charStage)
-        text.textSize = 20f * d
+        text.textSize = 20f * d * k
         val tw = text.measureText(label)
-        rect.set(cx - tw / 2 - 10 * d, palmTop + size * 0.46f, cx + tw / 2 + 10 * d, palmTop + size * 0.46f + 28 * d)
+        rect.set(cx - tw / 2 - 10 * d * k, palmTop + size * 0.46f, cx + tw / 2 + 10 * d * k, palmTop + size * 0.46f + 28 * d * k)
         fill.color = 0xFF000000.toInt()
         fill.alpha = (alpha * 0.75f).toInt()
-        canvas.drawRoundRect(rect, 14 * d, 14 * d, fill)
+        canvas.drawRoundRect(rect, 14 * d * k, 14 * d * k, fill)
         text.alpha = alpha
-        canvas.drawText(label, cx, rect.bottom - 6 * d, text)
+        canvas.drawText(label, cx, rect.bottom - 6 * d * k, text)
         canvas.restore()
     }
 

@@ -49,6 +49,11 @@ class Prefs(context: Context) {
         get() = sp.getFloat("spread", 1f)
         set(v) = sp.edit().putFloat("spread", v).apply()
 
+    /** 제한속도를 지키는 중이면 깜빡임 대신 큰 숫자(제한속도)만 보여준다 (기본 켜짐) */
+    var calmMode: Boolean
+        get() = sp.getBoolean("calmMode", true)
+        set(v) = sp.edit().putBoolean("calmMode", v).apply()
+
     val sidesOnly: Boolean get() = edgeMode == "sides"
 
     /** "auto" | "on" | "off" */

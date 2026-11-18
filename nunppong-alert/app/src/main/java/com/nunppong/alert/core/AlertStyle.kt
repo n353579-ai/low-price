@@ -79,4 +79,8 @@ object AlertStyle {
     /** 번짐의 가장 진한 부분의 투명도. 가까울수록 진해진다 (최대 0.85). */
     fun glowPeakAlpha(proximity: Float, spread: Float): Float =
         (0.55f + 0.30f * proximity * spread).coerceIn(0.55f, 0.85f)
+
+    /** 조용한 표시: 제한속도를 알고 지키는 중이면 그 제한속도를 반환(깜빡임 없이 큰 숫자만), 아니면 0. */
+    fun calmLimit(calm: Boolean, limit: Int, speedKmh: Double): Int =
+        if (calm && limit > 0 && speedKmh <= limit) limit else 0
 }

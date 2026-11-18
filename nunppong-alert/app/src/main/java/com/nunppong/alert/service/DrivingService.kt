@@ -208,8 +208,9 @@ class DrivingService : Service() {
                         wakeIfNeeded(o.stage)
                         engine.takePassed()?.let { askFeedback(it) }
                         val show = !prefs.overspeedOnly || o.limit <= 0 || o.speedKmh > o.limit + 5
-                        overlay.update(if (show) o.stage else Stage.HIDDEN, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character, AlertStyle.proximity(o.distanceM), prefs.spread)
-                        val st = Status(Mode.REAL, o.stage, o.distanceM?.toInt(), o.speedKmh.toInt(), o.overspeed, currentReason)
+                        overlay.update(if (show) o.stage else Stage.HIDDEN, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character, AlertStyle.proximity(o.distanceM), prefs.spread,
+                            AlertStyle.calmLimit(prefs.calmMode, o.limit, o.speedKmh), o.distanceM?.toInt() ?: -1)
+                        val st = Status(Mode.REAL, o.stage, o.distanceM?.toInt(), o.speedKmh.toInt(), o.overspeed, currentReason, limit = o.limit)
                         StatusRepo.status.value = st
                         updateNotification("주행 중 · " + stageText(st))
                         if (fix.timeMs - lastSavedPos > 60_000) { // 낮/밤 계산용으로 마지막 위치 저장
@@ -326,9 +327,10 @@ class DrivingService : Service() {
                 val stage = AlertStyle.stageForDistance(dist)
                 val over = stage == Stage.S3 && speed > limit
                 val show = !prefs.overspeedOnly || speed > limit + 5
-                overlay.update(if (show) stage else Stage.HIDDEN, over, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character, AlertStyle.proximity(dist), prefs.spread)
+                overlay.update(if (show) stage else Stage.HIDDEN, over, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character, AlertStyle.proximity(dist), prefs.spread,
+                    AlertStyle.calmLimit(prefs.calmMode, limit, speed.toDouble()), if (dist >= 0) dist.toInt() else -1)
 
-                val st = Status(Mode.SIM, stage, if (dist >= 0) dist.toInt() else null, speed, over)
+                val st = Status(Mode.SIM, stage, if (dist >= 0) dist.toInt() else null, speed, over, limit = limit)
                 StatusRepo.status.value = st
                 updateNotification("시뮬레이션 · " + stageText(st))
 
