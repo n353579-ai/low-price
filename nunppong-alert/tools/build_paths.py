@@ -12,11 +12,14 @@
     P <위도*1e5> <경도*1e5> <dlat> <dlon> <dlat> <dlon> ...   (정수, 처음 점은 절대값, 나머지는 앞 점과의 차)
     마지막 점이 카메라가 붙은 도로 위의 위치다. 점은 접근하는 순서대로 나열한다.
 """
+import csv
 import math
+import re
 import sys
 from collections import defaultdict
 
 import numpy as np
+import osmium
 
 import assign_bearing as A
 
@@ -39,6 +42,63 @@ def hav(lat1, lon1, lat2, lon2):
 def brg(lat1, lon1, lat2, lon2):
     mx = M_LAT * math.cos(math.radians((lat1 + lat2) / 2))
     return (math.degrees(math.atan2((lon2 - lon1) * mx, (lat2 - lat1) * M_LAT)) + 360.0) % 360.0
+
+
+WEAK_RANGE_M = 200     # 방향이 확실하지 않은 쪽 접근 경로는 카메라 앞 이 거리 안에서만 알린다
+
+
+class Names(osmium.SimpleHandler):
+    """OSM 지점 이름 -> 좌표들 (설치장소 글자의 '도착지/출발지' 위치를 찾는 데 쓴다)."""
+
+    def __init__(self):
+        super().__init__()
+        self.n = defaultdict(list)
+
+    def node(self, n):
+        nm = n.tags.get("name")
+        if nm and n.location.valid():
+            self.n[nm].append((n.location.lat, n.location.lon))
+
+
+def parse_route_text(t):
+    """'(풍세교차로→두남교차로)' -> ('풍세교차로', '두남교차로'), 아니면 None"""
+    m = re.search(r"\(?\s*([^()→]+?)\s*→\s*([^()→]+?)\s*\)?\s*$", t)
+    return (m.group(1), m.group(2)) if m else None
+
+
+def find_place(names, name, la, lo, lo_m=200, hi_m=8000):
+    pts = [p for p in names.get(name, []) if lo_m <= hav(la, lo, p[0], p[1]) <= hi_m]
+    if not pts:
+        return None
+    pts.sort(key=lambda p: hav(la, lo, p[0], p[1]))
+    # 가장 가까운 점과 600m 넘게 떨어진 다른 점이 있으면 동명이인 -> 포기
+    if any(hav(pts[0][0], pts[0][1], q[0], q[1]) > 600 for q in pts[1:]):
+        return None
+    return pts[0]
+
+
+def text_vote(names, itlpc, la, lo):
+    """설치장소 글자('A→B')로 추정한 진행방향(방위각), 모르면 None.
+    도착지 B 쪽을 향하고 출발지 A 에서 오는 방향. 둘이 서로 어긋나면 포기."""
+    ab = parse_route_text(itlpc)
+    if not ab:
+        return None
+    pa = find_place(names, ab[0], la, lo)
+    pb = find_place(names, ab[1], la, lo)
+    votes = []
+    if pb:
+        votes.append(brg(la, lo, pb[0], pb[1]))
+    if pa:
+        votes.append((brg(la, lo, pa[0], pa[1]) + 180.0) % 360.0)
+    if not votes:
+        return None
+    if len(votes) == 2:
+        if A.angle_diff(votes[0], votes[1]) > 90.0:
+            return None
+        x = sum(math.sin(math.radians(v)) for v in votes)
+        y = sum(math.cos(math.radians(v)) for v in votes)
+        return (math.degrees(math.atan2(x, y)) + 360.0) % 360.0
+    return votes[0]
 
 
 def simplify(pts, tol):
@@ -170,20 +230,34 @@ class Graph:
         return done
 
 
-def encode(pts):
+def encode(pts, weak=False):
     q = [(int(round(la * 1e5)), int(round(lo * 1e5))) for la, lo in pts]
     out = [q[0][0], q[0][1]]
     for a, b in zip(q, q[1:]):
         out += [b[0] - a[0], b[1] - a[1]]
-    return "P " + " ".join(str(x) for x in out)
+    return ("Q " if weak else "P ") + " ".join(str(x) for x in out)
 
 
 def main(argv):
     if len(argv) < 2:
         print(__doc__)
         return 2
+    flags = [a for a in argv[1:] if a.startswith("--csv=")]
+    argv = [argv[0]] + [a for a in argv[1:] if not a.startswith("--")]
     pbf = argv[1]
     grid = argv[2] if len(argv) > 2 else "app/src/main/assets/cameras.grid.txt"
+    names, itlpc = {}, {}
+    if flags:
+        print("지점 이름 읽는 중...")
+        nm = Names()
+        nm.apply_file(pbf, locations=False)
+        names = nm.n
+        with open(flags[0][6:], encoding="utf-8-sig", newline="") as f:
+            for r in csv.DictReader(f):
+                try:
+                    itlpc[(round(float(r["latitude"]), 6), round(float(r["longitude"]), 6))] = r.get("itlpc", "")
+                except (ValueError, KeyError):
+                    pass
     print("도로 읽는 중...")
     r = A.Roads()
     r.apply_file(pbf, locations=True)
@@ -193,7 +267,7 @@ def main(argv):
     g = Graph(segs)
 
     with open(grid, encoding="utf-8") as f:
-        lines = [ln for ln in f.read().splitlines() if not ln.startswith("P ")]
+        lines = [ln for ln in f.read().splitlines() if not ln.startswith(("P ", "Q "))]
     out, stats = [], defaultdict(int)
     total_pts = 0
     for ln in lines:
@@ -203,10 +277,31 @@ def main(argv):
         p = ln.split()
         lat, lon = float(p[1]), float(p[2])
         bearing, why, i0 = A.assign(segs, idx, lat, lon)
-        # 방향각은 '상·하행이 따로 그려진 도로'로 확정된 경우에만 파일에 쓴다.
-        # 길가 위치로 추정한 방향(side, 약 96%)은 경로만 그 방향으로 만들고 방향각은 -1 로 둔다
-        # -> 추정이 틀려도 300m 안전망이 양쪽 방향 모두 잡아 준다.
-        out[-1] = f"C {p[1]} {p[2]} {p[3]} {bearing if why == 'ok' else -1}"
+        # 방향 근거: (1) 상·하행이 따로 그려진 도로(ok) = 확정
+        #           (2) 길가 위치(side, 약 96%)  (3) 설치장소 글자 'A→B' 가 가리키는 방향
+        # 확정(ok)이거나 (2)(3)이 서로 같은 방향이면 방향각을 기록해 반대 차선을 끝까지 막는다(검증 정확도 99%).
+        # 근거가 하나뿐이면 방향각은 쓰지 않고, 반대쪽 접근 경로만 '약한 경로'(200m 안에서만 알림)로 둔다.
+        infer = -1          # 길가/글자로 추정한 방향 (약한 근거)
+        out_bearing = bearing if why == "ok" else -1
+        if why in ("side", "two_way") and i0 is not None:
+            tv = text_vote(names, itlpc.get((round(lat, 6), round(lon, 6)), ""), lat, lon) if names else None
+            sv = bearing if why == "side" else None
+            if sv is not None and tv is not None:
+                if A.angle_diff(sv, tv) <= 60.0:
+                    out_bearing = bearing = sv
+                    stats["strong_side+text"] += 1
+                else:
+                    stats["conflict_side_text"] += 1
+                    bearing = -1
+            elif sv is not None:
+                infer = sv
+                stats["weak_side"] += 1
+            elif tv is not None:
+                infer = int(round(tv)) % 360
+                stats["weak_text"] += 1
+        if why != "ok" and out_bearing < 0:
+            bearing = -1
+        out[-1] = f"C {p[1]} {p[2]} {p[3]} {out_bearing}"
         stats[why] += 1
         if i0 is None:
             stats["no_path"] += 1
@@ -245,12 +340,15 @@ def main(argv):
             t = 0.0 if ll == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / ll))
             clat = s[0] + t * (s[2] - s[0])
             clon = s[1] + t * (s[3] - s[1])
-            dirs = []
+            dirs = []   # (a, b, 약한 경로 여부)
             if bearing >= 0:
-                dirs.append((u, v) if A.angle_diff(bearing, b0) < 90.0 else (v, u))
+                dirs.append(((u, v) if A.angle_diff(bearing, b0) < 90.0 else (v, u)) + (False,))
+            elif infer >= 0 and i == i0:
+                fwd = A.angle_diff(infer, b0) < 90.0
+                dirs += [(u, v, not fwd), (v, u, fwd)]
             else:
-                dirs += [(u, v), (v, u)]
-            for (a, b) in dirs:
+                dirs += [(u, v, False), (v, u, False)]
+            for (a, b, weak) in dirs:
                 # 이 구간을 a->b 로 달릴 수 있는가 (일방통행이면 허용된 방향만)
                 ok = s[4] == 0 or (s[4] == 1 and (a, b) == (u, v)) or (s[4] == -1 and (a, b) == (v, u))
                 if not ok or (a, b) in covered:
@@ -261,7 +359,7 @@ def main(argv):
                     if len(pts) < 2:
                         continue
                     total_pts += len(pts)
-                    out.append(encode(pts))
+                    out.append(encode(pts, weak))
                     stats["paths"] += 1
                     made += 1
         stats["cams_with_path"] += 1 if made else 0

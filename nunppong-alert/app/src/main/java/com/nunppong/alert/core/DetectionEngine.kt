@@ -52,11 +52,19 @@ class DetectionEngine(
     private var last = EngineOutput(Stage.HIDDEN, false, null, 0.0)
     private var passed: PassEvent? = null
 
-    /** 카메라의 도로 선들 중 내가 올라타 있는 선의 남은 거리(가장 짧은 것), 없으면 null */
+    /** matchPath 직전 호출에서 '내가 선 위에 있지만 그 선의 알림 범위 밖'이었는지 */
+    private var onPathButFar = false
+
+    /**
+     * 카메라의 도로 선들 중 내가 올라타 있고 알림 범위 안인 선의 남은 거리(가장 짧은 것), 없으면 null.
+     * 선 위에는 있지만 범위 밖이면(예: 아직 1km 이상 남음, 반대 차선 약한 경로) onPathButFar 를 켠다.
+     */
     private fun matchPath(c: Camera, lat: Double, lon: Double): Double? {
+        onPathButFar = false
         var best: Double? = null
         for (p in c.paths) {
             val r = p.matchRemaining(lat, lon, heading, PATH_LATERAL_M, PATH_ANGLE) ?: continue
+            if (r > p.rangeM || r > 1000.0) { onPathButFar = true; continue }
             if (best == null || r < best) best = r
         }
         return best
@@ -118,8 +126,8 @@ class DetectionEngine(
             //     남은 거리는 도로를 따라 잰다 (커브에서도 정확).
             var eff = d
             val onRoad = if (!wasInside) roadRemain else null
+            if (onRoad == null && !wasInside && onPathButFar) continue   // 내 도로 위지만 아직 멀거나 반대 차선 약한 경로
             if (onRoad != null) {
-                if (onRoad > 1000.0) continue   // 도로를 따라 1km 넘게 남았으면 아직 알리지 않는다
                 eff = onRoad
             } else {
                 // 3) 직전보다 가까워진 카메라만

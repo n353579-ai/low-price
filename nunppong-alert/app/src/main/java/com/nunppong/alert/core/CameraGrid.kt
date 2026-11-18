@@ -40,13 +40,17 @@ class CameraGrid(private val cells: Map<Long, List<Camera>>, val count: Int) : C
                         cur?.add(Camera(id++, p[1].toDouble(), p[2].toDouble(), p[3].toInt(), p[4].toInt(), list))
                     }
                     // 도로 선: 첫 점은 (위도, 경도)×1e5 절대값, 이후는 앞 점과의 차
-                    "P" -> parsePath(p)?.let { paths?.add(it) }
+                    "P" -> parsePath(p, Double.MAX_VALUE)?.let { paths?.add(it) }
+                    // Q: 방향이 확실하지 않은 쪽 접근 경로 (카메라 앞 200m 안에서만 알림)
+                    "Q" -> parsePath(p, WEAK_RANGE_M)?.let { paths?.add(it) }
                 }
             }
             return CameraGrid(cells, id)
         }
 
-        private fun parsePath(p: List<String>): CamPath? {
+        private const val WEAK_RANGE_M = 200.0
+
+        private fun parsePath(p: List<String>, range: Double): CamPath? {
             val n = (p.size - 1) / 2
             if (n < 2) return null
             return try {
@@ -60,7 +64,7 @@ class CameraGrid(private val cells: Map<Long, List<Camera>>, val count: Int) : C
                     lat[i] = la / 1e5
                     lon[i] = lo / 1e5
                 }
-                CamPath(lat, lon)
+                CamPath(lat, lon, range)
             } catch (e: NumberFormatException) {
                 null   // 깨진 줄은 무시 (그 카메라는 예전 방식으로 판단)
             }
