@@ -59,6 +59,20 @@ class Names(osmium.SimpleHandler):
         if nm and n.location.valid():
             self.n[nm].append((n.location.lat, n.location.lon))
 
+    def way(self, w):
+        # 학교·건물·공원 같은 영역(way)은 중심점으로 쓴다
+        nm = w.tags.get("name")
+        if not nm:
+            return
+        la = lo = c = 0
+        for n in w.nodes:
+            if n.location.valid():
+                la += n.location.lat
+                lo += n.location.lon
+                c += 1
+        if c:
+            self.n[nm].append((la / c, lo / c))
+
 
 def parse_route_text(t):
     """'(풍세교차로→두남교차로)' -> ('풍세교차로', '두남교차로'), 아니면 None"""
@@ -66,8 +80,25 @@ def parse_route_text(t):
     return (m.group(1), m.group(2)) if m else None
 
 
+ABBR = (("초교", "초등학교"), ("고교", "고등학교"), ("중교", "중학교"))
+
+
+def name_variants(n):
+    """표기 차이(사거리/교차로, 초교/초등학교 등)를 감안한 이름 후보들"""
+    base = re.sub(r"(교차로|사거리|삼거리|오거리|입구|앞|방면|IC|JC)$", "", n)
+    out = [n, base] + [base + x for x in ("교차로", "사거리", "삼거리", "오거리", "IC", "입구", "교", "역")]
+    for a, b in ABBR:
+        if a in n:
+            out.append(n.replace(a, b))
+    return [v for v in dict.fromkeys(out) if v]
+
+
 def find_place(names, name, la, lo, lo_m=200, hi_m=8000):
-    pts = [p for p in names.get(name, []) if lo_m <= hav(la, lo, p[0], p[1]) <= hi_m]
+    pts = []
+    for v in name_variants(name):
+        pts = [p for p in names.get(v, []) if lo_m <= hav(la, lo, p[0], p[1]) <= hi_m]
+        if pts:
+            break
     if not pts:
         return None
     pts.sort(key=lambda p: hav(la, lo, p[0], p[1]))
@@ -250,7 +281,7 @@ def main(argv):
     if flags:
         print("지점 이름 읽는 중...")
         nm = Names()
-        nm.apply_file(pbf, locations=False)
+        nm.apply_file(pbf, locations=True)
         names = nm.n
         with open(flags[0][6:], encoding="utf-8-sig", newline="") as f:
             for r in csv.DictReader(f):
