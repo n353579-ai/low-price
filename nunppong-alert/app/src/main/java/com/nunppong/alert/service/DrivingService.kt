@@ -236,33 +236,48 @@ class DrivingService : Service() {
 
     private var wakeStage = Stage.HIDDEN
     private var lastWakeAt = 0L
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    /** 화면을 켜고 ms 동안 유지 (이미 켜 둔 상태에서 다시 부르면 시간이 새로 시작된다) */
+    @Suppress("DEPRECATION")
+    private fun holdScreen(pm: PowerManager, ms: Long) {
+        try {
+            val wl = wakeLock ?: pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "nunppong:wake"
+            ).also { it.setReferenceCounted(false); wakeLock = it }
+            wl.acquire(ms)
+        } catch (e: Exception) {
+            Log.w("DrivingService", "wake failed", e)
+        }
+    }
 
     /**
-     * 단속 구간에 새로 가까워졌을 때(숨김→1km 등 단계 상승) 폰이 잠겨 있으면:
-     *  - 화면이 꺼져 있으면 켜고(5초), 1분에 한 번만 (배터리)
-     *  - 잠금 화면 위에 테두리·캐릭터 전용 화면을 띄운다 (잠금이 풀리면 스스로 닫힘)
+     * 폰이 꺼져/잠겨 있을 때 화면 켜기:
+     *  - 멀리서(1~2단계) 처음 알릴 때: 4초만 켜서 알려 준다 (1분에 한 번, 배터리)
+     *  - 가까워졌을 때(3단계, 빨강): 제한 없이 즉시 켜고, 3단계인 동안 계속 켜 둔다 (최소 8초)
+     *  - 잠겨 있으면 잠금 화면 위에 테두리·캐릭터 전용 화면을 띄운다 (잠금이 풀리면 스스로 닫힘)
      */
-    @Suppress("DEPRECATION")
     private fun wakeIfNeeded(stage: Stage) {
-        val rose = stage.ordinal > wakeStage.ordinal
+        val prev = wakeStage
         wakeStage = stage
-        if (!rose || !prefs.wakeScreen) return
+        if (!prefs.wakeScreen || stage == Stage.HIDDEN) return
+        val rose = stage.ordinal > prev.ordinal
         val pm = getSystemService(PowerManager::class.java)
         val locked = getSystemService(KeyguardManager::class.java).isKeyguardLocked
         val screenOn = pm.isInteractive
         if (screenOn && !locked) return                // 평소처럼 쓰는 중: 기존 오버레이로 충분
+        if (stage == Stage.S3) {
+            holdScreen(pm, 8_000L)                     // 매초 갱신 -> 3단계 동안 계속 켜져 있다
+            if (locked && rose) LockScreenAlertActivity.start(this)
+            return
+        }
+        if (!rose) return
         if (!screenOn) {
             val nowMs = SystemClock.elapsedRealtime()
-            if (nowMs - lastWakeAt < 60_000L) return   // 꺼진 화면은 1분에 한 번만
+            if (nowMs - lastWakeAt < 60_000L) return   // 멀리서 켜는 건 1분에 한 번만
             lastWakeAt = nowMs
-            try {
-                pm.newWakeLock(
-                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                    "nunppong:wake"
-                ).acquire(5_000L)
-            } catch (e: Exception) {
-                Log.w("DrivingService", "wake failed", e)
-            }
+            holdScreen(pm, 4_000L)
         }
         if (locked) LockScreenAlertActivity.start(this)
     }

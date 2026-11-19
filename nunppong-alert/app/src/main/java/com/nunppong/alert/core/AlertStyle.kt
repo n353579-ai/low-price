@@ -14,11 +14,27 @@ object AlertStyle {
 
     enum class Phase { OFF, YELLOW, RED }
 
-    fun stageForDistance(meters: Double): Stage = when {
-        meters < 0 || meters > 1000 -> Stage.HIDDEN
-        meters > 500 -> Stage.S1
-        meters > 300 -> Stage.S2
-        else -> Stage.S3
+    /**
+     * 이 카메라를 몇 m 앞에서부터 알릴지. 빠른 도로일수록 멀리서.
+     * 제한속도 100 이상(고속도로) 1km, 80~99 700m, 그 아래(국도·시내) 500m, 모르면 700m.
+     */
+    fun rangeM(limit: Int): Double = when {
+        limit >= 100 -> 1000.0
+        limit >= 80 -> 700.0
+        limit > 0 -> 500.0
+        else -> 700.0
+    }
+
+    /** 범위 안에서 거리별 단계: 가까울수록 3단계(빨강). 1km 범위는 예전과 같은 500m/300m 경계. */
+    fun stageForDistance(meters: Double, range: Double = 1000.0): Stage {
+        val s3 = minOf(300.0, 0.5 * range)
+        val s2 = minOf(500.0, 0.8 * range)
+        return when {
+            meters < 0 || meters > range -> Stage.HIDDEN
+            meters > s2 -> Stage.S1
+            meters > s3 -> Stage.S2
+            else -> Stage.S3
+        }
     }
 
     fun hz(stage: Stage): Double = when (stage) {

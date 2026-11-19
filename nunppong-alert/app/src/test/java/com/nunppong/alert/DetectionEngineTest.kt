@@ -28,7 +28,7 @@ class DetectionEngineTest {
     }
 
     @Test fun approachingStagesAndPass() {
-        val e = DetectionEngine(grid(Camera(0, camLat, camLon, 80)))
+        val e = DetectionEngine(grid(Camera(0, camLat, camLon, 100)))
         val out = drive(e, upTo = 95)
         assertEquals(Stage.HIDDEN, out[10].stage)        // 1300m
         assertEquals(Stage.S1, out[35].stage)            // 800m
@@ -250,7 +250,7 @@ class DetectionEngineTest {
     private fun gridWithPaths(bearing: Int, vararg paths: String): CameraGrid {
         val lines = arrayListOf(
             "G ${Math.floor(camLat * 100).toInt()} ${Math.floor(camLon * 100).toInt()}",
-            "C $camLat $camLon 80 $bearing",
+            "C $camLat $camLon 100 $bearing",
         )
         lines += paths
         return CameraGrid.parse(lines.asSequence())
@@ -346,5 +346,30 @@ class DetectionEngineTest {
         val fromNorth = (0..70).map { i -> e2.update(at(1500.0 - 20.0 * i, 0.0, i, 180f)) }
         assertEquals(Stage.HIDDEN, fromNorth[45].stage)        // 600m
         assertEquals(Stage.S3, fromNorth[66].stage)            // 180m
+    }
+
+    @Test fun alertRangeDependsOnSpeedLimit() {
+        assertEquals(1000.0, AlertStyle.rangeM(110), 0.1)   // 고속도로
+        assertEquals(700.0, AlertStyle.rangeM(80), 0.1)
+        assertEquals(500.0, AlertStyle.rangeM(60), 0.1)     // 국도·시내
+        assertEquals(500.0, AlertStyle.rangeM(30), 0.1)
+        assertEquals(700.0, AlertStyle.rangeM(0), 0.1)      // 제한속도 모름
+        // 500m 범위: 500m 밖은 숨김, 400m까지 1단계, 250m까지 2단계, 그 안은 3단계
+        assertEquals(Stage.HIDDEN, AlertStyle.stageForDistance(520.0, 500.0))
+        assertEquals(Stage.S1, AlertStyle.stageForDistance(450.0, 500.0))
+        assertEquals(Stage.S2, AlertStyle.stageForDistance(300.0, 500.0))
+        assertEquals(Stage.S3, AlertStyle.stageForDistance(200.0, 500.0))
+        // 1km 범위는 예전과 같다
+        assertEquals(Stage.S1, AlertStyle.stageForDistance(800.0))
+        assertEquals(Stage.S2, AlertStyle.stageForDistance(400.0))
+        assertEquals(Stage.S3, AlertStyle.stageForDistance(250.0))
+    }
+
+    @Test fun nationalRoadCameraStartsAt500m() {
+        val e = DetectionEngine(grid(Camera(0, camLat, camLon, 60)))
+        val out = drive(e, upTo = 80)                       // i번째 남은 거리 = 1500 - 20*i
+        assertEquals(Stage.HIDDEN, out[40].stage)           // 700m: 제한속도 60 도로에서는 아직 조용
+        assertEquals(Stage.S1, out[54].stage)               // 420m
+        assertEquals(Stage.S3, out[66].stage)               // 180m
     }
 }

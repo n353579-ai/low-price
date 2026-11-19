@@ -49,6 +49,7 @@ class DetectionEngine(
     private var pending = Stage.HIDDEN
     private var pendingCount = 0
     private var heading = -1.0
+    private var bestRange = 1000.0
     private var last = EngineOutput(Stage.HIDDEN, false, null, 0.0)
     private var passed: PassEvent? = null
 
@@ -60,11 +61,12 @@ class DetectionEngine(
      * 선 위에는 있지만 범위 밖이면(예: 아직 1km 이상 남음, 반대 차선 약한 경로) onPathButFar 를 켠다.
      */
     private fun matchPath(c: Camera, lat: Double, lon: Double): Double? {
+        val range = AlertStyle.rangeM(c.limit)
         onPathButFar = false
         var best: Double? = null
         for (p in c.paths) {
             val r = p.matchRemaining(lat, lon, heading, PATH_LATERAL_M, PATH_ANGLE) ?: continue
-            if (r > p.rangeM || r > 1000.0) { onPathButFar = true; continue }
+            if (r > p.rangeM || r > range) { onPathButFar = true; continue }
             if (best == null || r < best) best = r
         }
         return best
@@ -120,7 +122,7 @@ class DetectionEngine(
                 continue
             }
             if (d < PASS_RADIUS_M && !stillApproaching) inside50.add(c.id)
-            if (d > 1000.0) continue
+            if (d > AlertStyle.rangeM(c.limit)) continue
 
             // 2a) 도로 선이 있는 카메라: 내가 그 선 위를 카메라 쪽으로 달리고 있으면 인정.
             //     남은 거리는 도로를 따라 잰다 (커브에서도 정확).
@@ -152,12 +154,13 @@ class DetectionEngine(
             if (eff < bestD) {
                 bestD = eff
                 best = c
+                bestRange = AlertStyle.rangeM(c.limit)
             }
         }
         lastDist = newDist
         inside50.retainAll(newDist.keys)   // 격자를 벗어난 카메라는 목록에서 정리
 
-        val raw = if (best != null) AlertStyle.stageForDistance(bestD) else Stage.HIDDEN
+        val raw = if (best != null) AlertStyle.stageForDistance(bestD, bestRange) else Stage.HIDDEN
 
         // 5) 2회 연속 같은 결과일 때만 단계 변경
         if (raw == confirmed) {
