@@ -293,12 +293,13 @@ class DetectionEngineTest {
     }
 
     @Test fun safetyNetAlertsWhenRoadDataIsWrong() {
-        // 도로 선이 엉뚱한 도로(동서 방향)로 잡혀 있어도, 카메라가 바로 정면 300m 안이면 알린다.
+        // 도로 선이 엉뚱한 도로(동서 방향)로 잡혀 있어도, 카메라가 바로 정면 100m 안이면 알린다.
         val wrong = pathLine(0.0 to 1000.0, 0.0 to 0.0)
         val e = DetectionEngine(gridWithPaths(-1, wrong))
-        val out = drive(e, upTo = 70)
+        val out = drive(e, upTo = 76)
         assertEquals(Stage.HIDDEN, out[45].stage)             // 600m: 도로 선과 안 맞아 조용
-        assertEquals(Stage.S3, out[66].stage)                 // 180m: 안전망
+        assertEquals(Stage.HIDDEN, out[66].stage)             // 180m: 안전망 범위(100m) 밖
+        assertEquals(Stage.S3, out[74].stage)                 // 20m 전: 안전망
     }
 
     @Test fun oppositeDirectionOnOneWayPath() {
@@ -306,11 +307,12 @@ class DetectionEngineTest {
         val road = pathLine(-1100.0 to 0.0, 0.0 to 0.0)
         fun run(bearing: Int): List<EngineOutput> {
             val e = DetectionEngine(gridWithPaths(bearing, road))
-            return (0..70).map { i -> e.update(at(1500.0 - 20.0 * i, 0.0, i, 180f)) }
+            return (0..76).map { i -> e.update(at(1500.0 - 20.0 * i, 0.0, i, 180f)) }
         }
-        val unknown = run(-1)                                  // 방향 모름: 멀리서는 조용, 300m 안전망만
+        val unknown = run(-1)                                  // 방향 모름: 멀리서는 조용, 100m 안전망만
         assertEquals(Stage.HIDDEN, unknown[45].stage)
-        assertEquals(Stage.S3, unknown[66].stage)
+        assertEquals(Stage.HIDDEN, unknown[66].stage)
+        assertEquals(Stage.S3, unknown[74].stage)
         assertTrue(run(0).all { it.stage == Stage.HIDDEN })    // 방향 확정(북행 단속): 반대 차선은 끝까지 조용
     }
 

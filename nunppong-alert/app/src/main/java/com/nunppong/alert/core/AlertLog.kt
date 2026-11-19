@@ -9,7 +9,7 @@ data class AlertEntry(
     val camLon: Double,
     val limit: Int,
     val distM: Int,
-    /** 어떤 규칙으로 알렸나: 도로선 / 정면(300m 안전망) / 직선(도로 정보 없음) / 50m안 */
+    /** 어떤 규칙으로 알렸나: 도로선 / 정면(안전망) / 직선(도로 정보 없음) / 50m안 */
     val rule: String,
     val speedKmh: Int,
 ) {
