@@ -420,9 +420,10 @@ class DetectionEngineTest {
     @Test fun alertLogKeepsLatest30AndRoundTrips() {
         var saved: List<AlertEntry> = emptyList()
         val log = AlertLogList(emptyList()) { saved = it }
-        for (i in 1..35) log.add(AlertEntry(i * 1000L, 37.5, 127.0, 60, 300, "도로선", 50))
-        assertEquals(30, log.all().size)
-        assertEquals(35_000L, log.all().first().timeMs)          // 최신이 앞
+        val total = AlertLogList.MAX + 5
+        for (i in 1..total) log.add(AlertEntry(i * 1000L, 37.5, 127.0, 60, 300, "도로선", 50))
+        assertEquals(AlertLogList.MAX, log.all().size)
+        assertEquals(total * 1000L, log.all().first().timeMs)    // 최신이 앞
         val back = AlertEntry.parse(saved.first().toLine())!!
         assertEquals("도로선", back.rule)
         assertEquals(37.5, back.camLat, 1e-9)
@@ -464,5 +465,36 @@ class DetectionEngineTest {
         }
         assertEquals(Stage.HIDDEN, run(0f))
         assertTrue(run(25f) != Stage.HIDDEN)
+    }
+
+    @Test fun alertEntryRoundTripWithReviewFields() {
+        val e = AlertEntry(1000L, 37.5, 127.0, 60, 300, "도로선", 52, heading = 90, speeds = "62/55/41", review = 2)
+        val back = AlertEntry.parse(e.toLine())!!
+        assertEquals(e, back)
+        // 예전 형식(7칸)도 읽는다
+        val old = AlertEntry.parse("1000|37.5|127.0|60|300|도로선|52")!!
+        assertEquals(-1, old.heading)
+        assertEquals("", old.speeds)
+        assertEquals(0, old.review)
+    }
+
+    @Test fun passRecordsSpeedProfileAndReviewIsSaved() {
+        var saved: List<AlertEntry> = emptyList()
+        val log = AlertLogList(emptyList()) { saved = it }
+        log.add(AlertEntry(5000L, camLat, camLon, 60, 400, "도로선", 70, heading = 0))
+        // 북쪽으로 달리며 카메라 접근: 속도 70 -> 40km/h 로 줄임
+        val a = ApproachSpeeds()
+        for (i in 0..60) {
+            val remain = 1000.0 - i * 20.0
+            val kmh = if (remain > 320) 70.0 else if (remain > 170) 60.0 else 40.0
+            a.add(camLat - remain / mPerDeg, camLon, kmh)
+        }
+        val prof = a.profile(camLat, camLon)
+        assertEquals("60/40/40", prof)                         // 300m 전 60, 150m 전 40, 50m 전 40
+        assertTrue(log.markPass(AlertEntry.cameraKey(camLat, camLon), prof))
+        assertEquals("60/40/40", saved.first().speeds)
+        log.setReview(5000L, 2)
+        assertEquals(2, saved.first().review)
+        assertFalse(log.markPass("0.0,0.0", "-/-/-"))
     }
 }
