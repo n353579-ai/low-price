@@ -64,6 +64,8 @@ class DetectionEngine(
 
     /** matchPath 직전 호출에서 '내가 선 위에 있지만 그 선의 알림 범위 밖'이었는지 */
     private var onPathButFar = false
+    /** 마지막 matchPath 에서 알림 범위·교차로 조건과 상관없이 내가 선 위에 있을 때의 카메라까지 남은 거리 */
+    private var lastAnyRemain: Double? = null
 
     /**
      * 카메라의 도로 선들 중 내가 올라타 있고 알림 범위 안인 선의 남은 거리(가장 짧은 것), 없으면 null.
@@ -72,9 +74,11 @@ class DetectionEngine(
     private fun matchPath(c: Camera, lat: Double, lon: Double): Double? {
         val range = AlertStyle.rangeM(c.limit)
         onPathButFar = false
+        lastAnyRemain = null
         var best: Double? = null
         for (p in c.paths) {
             val r = p.matchRemaining(lat, lon, heading, PATH_LATERAL_M, PATH_ANGLE) ?: continue
+            if (lastAnyRemain == null || r < lastAnyRemain!!) lastAnyRemain = r
             if (r > p.rangeM || r > range) { onPathButFar = true; continue }
             if (r > JUNCTION_FREE_M && p.junctionsAhead(r) > MAX_JUNCTIONS) { onPathButFar = true; continue }
             if (best == null || r < best) best = r
@@ -132,7 +136,8 @@ class DetectionEngine(
             // 도로 선 위에서 카메라까지 아직 한참(100m 초과) 남았으면, 직선거리로 50m 안을 스쳐도
             // '통과'로 보지 않는다 (회전 램프·굽은 길이 카메라 옆을 지나갔다가 돌아오는 경우).
             val roadRemain = if (c.paths.isNotEmpty()) matchPath(c, fix.lat, fix.lon) else null
-            val stillApproaching = roadRemain != null && roadRemain > 2 * PASS_RADIUS_M
+            val anyRemain = if (c.paths.isNotEmpty()) lastAnyRemain else null
+            val stillApproaching = anyRemain != null && anyRemain > 2 * PASS_RADIUS_M
             if (stillApproaching) inside50.remove(c.id)
             val wasInside = inside50.contains(c.id)
 
