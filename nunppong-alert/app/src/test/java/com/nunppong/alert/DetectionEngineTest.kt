@@ -410,4 +410,23 @@ class DetectionEngineTest {
         log.clear()
         assertTrue(saved.isEmpty())
     }
+
+    @Test fun alertWaitsWhileMoreThanOneTurnOffJunctionRemains() {
+        // 카메라까지 도로 1100m, 꺾을 수 있는 교차로가 카메라 앞 300·600·900m 지점에 있다.
+        val line = pathLine(-1100.0 to 0.0, 0.0 to 0.0)
+        val e = DetectionEngine(gridWithPaths(-1, line, "J 300 600 900"))
+        val out = drive(e, upTo = 80)                          // i번째 남은 거리 = 1500 - 20*i
+        assertEquals(Stage.HIDDEN, out[30].stage)              // 900m 남음: 교차로 3개 남음 -> 조용
+        assertEquals(Stage.HIDDEN, out[44].stage)              // 620m: 교차로 2개(600, 300) -> 조용
+        assertTrue(out[55].stage != Stage.HIDDEN)              // 400m: 교차로 1개(300)만 남음 -> 알림 시작
+        assertEquals(Stage.S3, out[66].stage)                  // 180m
+    }
+
+    @Test fun junctionsAheadIgnoresNearCameraAndJustPassed() {
+        val p = CamPath(doubleArrayOf(37.0, 37.001), doubleArrayOf(127.0, 127.0))
+        p.junctions = intArrayOf(10, 200, 400)
+        assertEquals(2, p.junctionsAhead(500.0))               // 10m 지점(카메라 바로 앞)은 제외
+        assertEquals(1, p.junctionsAhead(300.0))
+        assertEquals(0, p.junctionsAhead(210.0))               // 200m 지점은 내 바로 뒤 15m 이내라 제외
+    }
 }

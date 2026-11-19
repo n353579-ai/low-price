@@ -43,6 +43,8 @@ class CameraGrid(private val cells: Map<Long, List<Camera>>, val count: Int) : C
                     "P" -> parsePath(p, Double.MAX_VALUE)?.let { paths?.add(it) }
                     // Q: 방향이 확실하지 않은 쪽 접근 경로 (카메라 앞 200m 안에서만 알림)
                     "Q" -> parsePath(p, WEAK_RANGE_M)?.let { paths?.add(it) }
+                    // J: 바로 앞 경로에서 꺾어 나갈 수 있는 교차로 위치 (카메라까지 남은 거리 m)
+                    "J" -> paths?.lastOrNull()?.junctions = p.drop(1).mapNotNull { it.toIntOrNull() }.toIntArray()
                 }
             }
             return CameraGrid(cells, id)

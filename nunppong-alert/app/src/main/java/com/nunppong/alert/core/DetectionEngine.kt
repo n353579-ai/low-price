@@ -28,6 +28,11 @@ class DetectionEngine(
         const val LATERAL_PER_M = 0.07
         /** 도로 선 맞추기: 선에서 옆으로 이 이내(넓은 도로 바깥 차선 + GPS 오차), 진행방향은 선 방향과 이 각도 이내 */
         const val PATH_LATERAL_M = 30.0
+        /** 카메라 전에 내가 꺾을 수 있는 갈림길이 이보다 많이 남았으면 아직 알리지 않는다 (중간에 꺾으면 틀린 알림이 되므로).
+         * 실제 도로 1,560km 가상 주행으로 고른 값: 0~99 중 1이 틀린 알림 -20%, 정답 알림 -2%. */
+        const val MAX_JUNCTIONS = 1
+        /** 카메라까지 이 거리 안이면 갈림길이 남아 있어도 알린다 */
+        const val JUNCTION_FREE_M = 150.0
         const val PATH_ANGLE = 45.0
         /** 안전망: 도로 선과 안 맞아도 이 거리 안에서 바로 정면(각도·옆거리 이내)이면 알린다 */
         const val NET_M = 300.0
@@ -71,6 +76,7 @@ class DetectionEngine(
         for (p in c.paths) {
             val r = p.matchRemaining(lat, lon, heading, PATH_LATERAL_M, PATH_ANGLE) ?: continue
             if (r > p.rangeM || r > range) { onPathButFar = true; continue }
+            if (r > JUNCTION_FREE_M && p.junctionsAhead(r) > MAX_JUNCTIONS) { onPathButFar = true; continue }
             if (best == null || r < best) best = r
         }
         return best
