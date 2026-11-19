@@ -5,7 +5,7 @@ package com.nunppong.alert.core
  *
  * 1. 주변 격자 9칸 후보 조회
  * 2. 도로 선이 있는 카메라: 내가 그 선 위를 카메라 쪽으로 달릴 때 인정 (남은 거리는 도로를 따라 잼).
- *    선과 안 맞으면 300m 안 바로 정면일 때만 인정 (안전망).
+ *    선과 안 맞으면 100m 안 바로 정면일 때만 인정 (안전망).
  *    도로 선이 없는 카메라: 내 진행방향 ±30° 이내의 앞쪽 카메라만 (예전 방식)
  * 3. 직전보다 거리가 줄어든 카메라만 인정, 가장 가까운 하나로 단계 결정
  * 4. 속도 10km/h 미만이면 직전 결과 유지
@@ -34,8 +34,9 @@ class DetectionEngine(
         /** 카메라까지 이 거리 안이면 갈림길이 남아 있어도 알린다 */
         const val JUNCTION_FREE_M = 150.0
         const val PATH_ANGLE = 45.0
-        /** 안전망: 도로 선과 안 맞아도 이 거리 안에서 바로 정면(각도·옆거리 이내)이면 알린다 */
-        const val NET_M = 300.0
+        /** 안전망: 도로 선과 안 맞아도 이 거리 안에서 바로 정면(각도·옆거리 이내)이면 알린다.
+         * 실제 도로 1,560km 가상 주행: 300m->100m 로 줄이면 틀린 알림 -59건, 못 울리는 카메라 +5개. */
+        const val NET_M = 100.0
         const val NET_ANGLE = 20.0
         const val NET_LATERAL_M = 20.0
         const val PASS_RADIUS_M = 50.0
@@ -171,7 +172,7 @@ class DetectionEngine(
                     if (c.paths.isNotEmpty()) {
                         // 2b) 안전망: 도로 선과 안 맞아도(도로 정보가 틀렸을 수 있음) 바로 정면 가까이에 있으면 알린다.
                         if (d > NET_M || diff > NET_ANGLE || lateral > NET_LATERAL_M) continue
-                        rule = "정면(300m 안전망)"
+                        rule = "정면(안전망)"
                     } else {
                         // 2c) 도로 정보가 없는 카메라: 예전 방식 (진행선 기준)
                         if (diff > MAX_ANGLE) continue
