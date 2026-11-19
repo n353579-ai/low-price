@@ -28,6 +28,10 @@ class DetectionEngine(
         const val LATERAL_PER_M = 0.07
         /** 도로 선 맞추기: 선에서 옆으로 이 이내(넓은 도로 바깥 차선 + GPS 오차), 진행방향은 선 방향과 이 각도 이내 */
         const val PATH_LATERAL_M = 30.0
+        /** 이미 알리는 중인 카메라의 범위 경계 여유 배율 */
+        const val STICKY_RANGE = 1.15
+        /** GPS 정확도가 나쁠 때 늘려 주는 옆 허용 오차의 상한 */
+        const val PATH_LATERAL_MAX_M = 60.0
         /** 카메라 전에 내가 꺾을 수 있는 갈림길이 이보다 많이 남았으면 아직 알리지 않는다 (중간에 꺾으면 틀린 알림이 되므로).
          * 실제 도로 1,560km 가상 주행으로 고른 값: 0~99 중 1이 틀린 알림 -20%, 정답 알림 -2%. */
         const val MAX_JUNCTIONS = 1
@@ -45,6 +49,8 @@ class DetectionEngine(
         const val PASS_MARGIN_M = 5.0
         const val IGNORE_MS = 30_000L
         const val SPEED_WINDOW_MS = 3_000L
+        /** 켜져 있던 알림을 끌 때 연속으로 필요한 '없음' 판정 횟수 (위치·방향이 순간 흔들려 깜빡이는 것 방지) */
+        const val HIDE_FIXES = 2
         /** 이만큼 계속 멈춰 있으면 알림을 끈다 (신호 대기는 버티고, 주차·도착 후에는 안 남게) */
         const val STILL_HIDE_MS = 90_000L
         /** 멈춘 지 이 시간이 지났고 카메라가 이 거리보다 멀면 알림을 끈다 (막히는 길에서 멀리서부터 계속 울리지 않게). 카메라 바로 앞 신호 대기는 유지. */
@@ -63,6 +69,8 @@ class DetectionEngine(
     private var heading = -1.0
     private var bestRange = 1000.0
     private var bestRule = ""
+    /** 직전 판단에서 알림 후보였던 카메라 */
+    private var prevAccepted = HashSet<Int>()
     private var last = EngineOutput(Stage.HIDDEN, false, null, 0.0)
     private var passed: PassEvent? = null
     private var stillSince = -1L
@@ -76,16 +84,21 @@ class DetectionEngine(
      * 카메라의 도로 선들 중 내가 올라타 있고 알림 범위 안인 선의 남은 거리(가장 짧은 것), 없으면 null.
      * 선 위에는 있지만 범위 밖이면(예: 아직 1km 이상 남음, 반대 차선 약한 경로) onPathButFar 를 켠다.
      */
-    private fun matchPath(c: Camera, lat: Double, lon: Double, range: Double, speedMps: Double): Double? {
+    private fun matchPath(c: Camera, lat: Double, lon: Double, range: Double, speedMps: Double, accuracyM: Double, sticky: Boolean): Double? {
+        // 이미 알림이 켜진 카메라는 경계값(범위·약한 경로 거리·교차로 개수)에서 위치가 흔들려도 꺼지지 않게 여유를 준다
+        val stick = if (sticky) STICKY_RANGE else 1.0
+        // GPS가 거칠면(고층 건물 사이 등) 도로 선 맞추기 허용 오차를 넓혀 알림이 끊기지 않게 한다
+        val lateralTol = maxOf(PATH_LATERAL_M, 2.0 * accuracyM).coerceAtMost(PATH_LATERAL_MAX_M)
+        val angleTol = PATH_ANGLE + minOf(20.0, accuracyM)
         val junctionFree = maxOf(JUNCTION_FREE_M, speedMps * JUNCTION_FREE_SEC)
         onPathButFar = false
         lastAnyRemain = null
         var best: Double? = null
         for (p in c.paths) {
-            val r = p.matchRemaining(lat, lon, heading, PATH_LATERAL_M, PATH_ANGLE) ?: continue
+            val r = p.matchRemaining(lat, lon, heading, lateralTol, angleTol) ?: continue
             if (lastAnyRemain == null || r < lastAnyRemain!!) lastAnyRemain = r
-            if (r > p.rangeM || r > range) { onPathButFar = true; continue }
-            if (r > junctionFree && p.junctionsAhead(r) > MAX_JUNCTIONS) { onPathButFar = true; continue }
+            if (r > p.rangeM * stick || r > range * stick) { onPathButFar = true; continue }
+            if (!sticky && r > junctionFree && p.junctionsAhead(r) > MAX_JUNCTIONS) { onPathButFar = true; continue }
             if (best == null || r < best) best = r
         }
         return best
@@ -131,6 +144,7 @@ class DetectionEngine(
         ignoreUntil.entries.removeAll { it.value <= now }
 
         val newDist = HashMap<Int, Double>()
+        val accepted = HashSet<Int>()
         val range = AlertStyle.rangeFor(avg / 3.6)
         var best: Camera? = null
         var bestD = Double.MAX_VALUE
@@ -143,7 +157,7 @@ class DetectionEngine(
             newDist[c.id] = d
             // 도로 선 위에서 카메라까지 아직 한참(100m 초과) 남았으면, 직선거리로 50m 안을 스쳐도
             // '통과'로 보지 않는다 (회전 램프·굽은 길이 카메라 옆을 지나갔다가 돌아오는 경우).
-            val roadRemain = if (c.paths.isNotEmpty()) matchPath(c, fix.lat, fix.lon, range, avg / 3.6) else null
+            val roadRemain = if (c.paths.isNotEmpty()) matchPath(c, fix.lat, fix.lon, range, avg / 3.6, fix.accuracyM.toDouble(), prevAccepted.contains(c.id)) else null
             val anyRemain = if (c.paths.isNotEmpty()) lastAnyRemain else null
             val stillApproaching = anyRemain != null && anyRemain > 2 * PASS_RADIUS_M
             if (stillApproaching) inside50.remove(c.id)
@@ -156,7 +170,7 @@ class DetectionEngine(
                 passed = PassEvent(c, heading)
                 continue
             }
-            if (d > range) continue
+            if (d > range * (if (prevAccepted.contains(c.id)) STICKY_RANGE else 1.0)) continue
 
             // 2a) 도로 선이 있는 카메라: 내가 그 선 위를 카메라 쪽으로 달리고 있으면 인정.
             //     남은 거리는 도로를 따라 잰다 (커브에서도 정확).
@@ -188,6 +202,7 @@ class DetectionEngine(
                     if (c.bearing >= 0 && Geo.angleDiff(heading, c.bearing.toDouble()) > CAMERA_BEARING_TOL) continue
                 }
             }
+            accepted.add(c.id)
             // 필터를 통과한(=알림 후보가 된) 카메라만 '50m 안'으로 등록한다.
             // 걸러진 옆 도로 카메라가 다음 초에 필터 없이 통과하던 버그를 막는다.
             if (d < PASS_RADIUS_M && !stillApproaching) inside50.add(c.id)
@@ -199,6 +214,7 @@ class DetectionEngine(
             }
         }
         lastDist = newDist
+        prevAccepted = accepted
         inside50.retainAll(newDist.keys)   // 격자를 벗어난 카메라는 목록에서 정리
 
         val raw = if (best != null) AlertStyle.stageForDistance(bestD, bestRange) else Stage.HIDDEN
@@ -209,7 +225,7 @@ class DetectionEngine(
             pendingCount = 0
         } else if (raw == pending) {
             pendingCount++
-            if (pendingCount >= 2) {
+            if (pendingCount >= (if (raw == Stage.HIDDEN) HIDE_FIXES else 2)) {
                 confirmed = raw
                 pendingCount = 0
             }

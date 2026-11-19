@@ -91,6 +91,8 @@ data class Fix(
     val bearing: Float,
     val hasBearing: Boolean,
     val timeMs: Long,
+    /** 폰이 알려주는 위치 정확도(m, 68% 반경). 모르면 0 */
+    val accuracyM: Float = 0f,
 )
 
 data class EngineOutput(
