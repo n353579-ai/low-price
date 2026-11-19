@@ -38,6 +38,8 @@ class DetectionEngine(
         const val PASS_MARGIN_M = 5.0
         const val IGNORE_MS = 30_000L
         const val SPEED_WINDOW_MS = 3_000L
+        /** 이만큼 계속 멈춰 있으면 알림을 끈다 (신호 대기는 버티고, 주차·도착 후에는 안 남게) */
+        const val STILL_HIDE_MS = 90_000L
     }
 
     private val samples = ArrayDeque<Pair<Long, Double>>()
@@ -52,6 +54,7 @@ class DetectionEngine(
     private var bestRange = 1000.0
     private var last = EngineOutput(Stage.HIDDEN, false, null, 0.0)
     private var passed: PassEvent? = null
+    private var stillSince = -1L
 
     /** matchPath 직전 호출에서 '내가 선 위에 있지만 그 선의 알림 범위 밖'이었는지 */
     private var onPathButFar = false
@@ -86,9 +89,21 @@ class DetectionEngine(
         // 4) 저속이면 직전 단계 유지
         // (평균뿐 아니라 현재 속도도 낮으면 정차로 본다: 신호 대기 중 단계가 꺼지지 않게)
         if (avg < MIN_SPEED_KMH || fix.speedMps * 3.6 < MIN_SPEED_KMH) {
-            last = last.copy(speedKmh = avg)
+            if (stillSince < 0) stillSince = now
+            if (now - stillSince >= STILL_HIDE_MS && last.stage != Stage.HIDDEN) {
+                // 오래 멈춤: 단계·거리 기록을 모두 비운다. 다시 달리면 처음부터 판단한다.
+                confirmed = Stage.HIDDEN
+                pending = Stage.HIDDEN
+                pendingCount = 0
+                lastDist = HashMap()
+                inside50.clear()
+                last = EngineOutput(Stage.HIDDEN, false, null, avg)
+            } else {
+                last = last.copy(speedKmh = avg)
+            }
             return last
         }
+        stillSince = -1L
         if (fix.hasBearing) heading = fix.bearing.toDouble()
         if (heading < 0) {
             last = last.copy(speedKmh = avg)
