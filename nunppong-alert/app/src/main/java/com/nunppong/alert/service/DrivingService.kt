@@ -23,7 +23,10 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.nunppong.alert.core.AlertStyle
+import com.nunppong.alert.core.AlertEntry
+import com.nunppong.alert.core.AlertLog
 import com.nunppong.alert.core.CameraFeedback
+import com.nunppong.alert.core.EngineOutput
 import com.nunppong.alert.core.PassEvent
 import com.nunppong.alert.core.CameraRepository
 import com.nunppong.alert.core.DetectionEngine
@@ -206,6 +209,7 @@ class DrivingService : Service() {
                         )
                         val o = engine.update(fix)
                         wakeIfNeeded(o.stage)
+                        logAlert(o)
                         engine.takePassed()?.let { askFeedback(it) }
                         val show = !prefs.overspeedOnly || o.limit <= 0 || o.speedKmh > o.limit + 5
                         overlay.update(if (show) o.stage else Stage.HIDDEN, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character, AlertStyle.proximity(o.distanceM), prefs.spread,
@@ -232,6 +236,24 @@ class DrivingService : Service() {
                 stopSelf()
             }
         }
+    }
+
+    private var loggedKey: String? = null
+
+    /** 새 카메라로 알림이 시작될 때 한 번 기록한다 (설정 화면 '최근 알림 기록'에서 확인). */
+    private fun logAlert(o: EngineOutput) {
+        val la = o.camLat
+        val lo = o.camLon
+        if (o.stage == Stage.HIDDEN || la == null || lo == null) {
+            loggedKey = null
+            return
+        }
+        val key = String.format(java.util.Locale.US, "%.5f,%.5f", la, lo)
+        if (key == loggedKey) return
+        loggedKey = key
+        AlertLog.get(this).add(
+            AlertEntry(System.currentTimeMillis(), la, lo, o.limit, (o.distanceM ?: -1.0).toInt(), o.rule, o.speedKmh.toInt())
+        )
     }
 
     private var wakeStage = Stage.HIDDEN

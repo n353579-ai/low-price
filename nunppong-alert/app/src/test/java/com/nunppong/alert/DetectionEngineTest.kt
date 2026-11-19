@@ -384,4 +384,28 @@ class DetectionEngineTest {
         for (k in 61..100) o = e.update(Fix(lat, camLon, 0f, 0f, true, (66 + k) * 1000L)) // 100초째
         assertEquals(Stage.HIDDEN, o.stage)                    // 오래 멈추면 끈다
     }
+
+    @Test fun engineReportsWhichCameraAndRule() {
+        val e = DetectionEngine(grid(Camera(0, camLat, camLon, 100)))
+        val out = drive(e, upTo = 40)
+        val o = out[40]                                          // 700m 앞
+        assertEquals(camLat, o.camLat!!, 1e-6)
+        assertEquals(camLon, o.camLon!!, 1e-6)
+        assertEquals("직선(도로 정보 없음)", o.rule)
+        val e2 = DetectionEngine(gridWithPaths(-1, pathLine(-1100.0 to 0.0, 0.0 to 0.0)))
+        assertEquals("도로선", drive(e2, upTo = 40)[40].rule)
+    }
+
+    @Test fun alertLogKeepsLatest30AndRoundTrips() {
+        var saved: List<AlertEntry> = emptyList()
+        val log = AlertLogList(emptyList()) { saved = it }
+        for (i in 1..35) log.add(AlertEntry(i * 1000L, 37.5, 127.0, 60, 300, "도로선", 50))
+        assertEquals(30, log.all().size)
+        assertEquals(35_000L, log.all().first().timeMs)          // 최신이 앞
+        val back = AlertEntry.parse(saved.first().toLine())!!
+        assertEquals("도로선", back.rule)
+        assertEquals(37.5, back.camLat, 1e-9)
+        log.clear()
+        assertTrue(saved.isEmpty())
+    }
 }

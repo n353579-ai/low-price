@@ -23,7 +23,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -883,6 +885,71 @@ fun SettingsScreen() {
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("꺼둔 카메라 피드백 모두 초기화")
+                }
+            }
+        }
+
+        // 5. 최근 알림 기록 (틀린 알림 원인 확인용)
+        val alertLog = remember { com.nunppong.alert.core.AlertLog.get(ctx) }
+        var entries by remember { mutableStateOf(alertLog.all()) }
+        val clipboard = LocalClipboardManager.current
+        val fmt = remember { java.text.SimpleDateFormat("MM/dd HH:mm:ss", java.util.Locale.KOREA) }
+        fun line(e: com.nunppong.alert.core.AlertEntry) =
+            "${fmt.format(java.util.Date(e.timeMs))} · 제한 ${e.limit} · ${e.rule} · ${e.distM}m · ${e.speedKmh}km/h · https://maps.google.com/?q=${e.camLat},${e.camLon}"
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "최근 알림 기록",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    "알림이 시작된 카메라와 알린 규칙이에요. 틀린 알림이면 '지도로 보기'로 그 자리에 카메라가 있는지 확인해 보세요. 기록은 폰 안에만 저장돼요.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (entries.isEmpty()) {
+                    Text("아직 기록이 없어요.", style = MaterialTheme.typography.bodyMedium)
+                }
+                entries.take(15).forEach { e ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(fmt.format(java.util.Date(e.timeMs)), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "제한 ${e.limit} · ${e.rule} · ${e.distM}m · ${e.speedKmh}km/h",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        TextButton(onClick = {
+                            val uri = Uri.parse("https://maps.google.com/?q=${e.camLat},${e.camLon}")
+                            try {
+                                ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            } catch (_: Exception) {
+                            }
+                        }) { Text("지도로 보기") }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { clipboard.setText(AnnotatedString(entries.joinToString("\n") { line(it) })) },
+                        modifier = Modifier.weight(1f),
+                        enabled = entries.isNotEmpty(),
+                    ) { Text("기록 복사") }
+                    OutlinedButton(
+                        onClick = { alertLog.clear(); entries = emptyList() },
+                        modifier = Modifier.weight(1f),
+                        enabled = entries.isNotEmpty(),
+                    ) { Text("기록 지우기") }
                 }
             }
         }

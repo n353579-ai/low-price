@@ -52,6 +52,7 @@ class DetectionEngine(
     private var pendingCount = 0
     private var heading = -1.0
     private var bestRange = 1000.0
+    private var bestRule = ""
     private var last = EngineOutput(Stage.HIDDEN, false, null, 0.0)
     private var passed: PassEvent? = null
     private var stillSince = -1L
@@ -142,10 +143,12 @@ class DetectionEngine(
             // 2a) 도로 선이 있는 카메라: 내가 그 선 위를 카메라 쪽으로 달리고 있으면 인정.
             //     남은 거리는 도로를 따라 잰다 (커브에서도 정확).
             var eff = d
+            var rule = if (wasInside) "50m안" else "직선(도로 정보 없음)"
             val onRoad = if (!wasInside) roadRemain else null
             if (onRoad == null && !wasInside && onPathButFar) continue   // 내 도로 위지만 아직 멀거나 반대 차선 약한 경로
             if (onRoad != null) {
                 eff = onRoad
+                rule = "도로선"
             } else {
                 // 3) 직전보다 가까워진 카메라만
                 if (prev == null || d >= prev) continue
@@ -158,6 +161,7 @@ class DetectionEngine(
                     if (c.paths.isNotEmpty()) {
                         // 2b) 안전망: 도로 선과 안 맞아도(도로 정보가 틀렸을 수 있음) 바로 정면 가까이에 있으면 알린다.
                         if (d > NET_M || diff > NET_ANGLE || lateral > NET_LATERAL_M) continue
+                        rule = "정면(300m 안전망)"
                     } else {
                         // 2c) 도로 정보가 없는 카메라: 예전 방식 (진행선 기준)
                         if (diff > MAX_ANGLE) continue
@@ -170,6 +174,7 @@ class DetectionEngine(
                 bestD = eff
                 best = c
                 bestRange = AlertStyle.rangeM(c.limit)
+                bestRule = rule
             }
         }
         lastDist = newDist
@@ -193,7 +198,7 @@ class DetectionEngine(
         }
 
         val over = confirmed == Stage.S3 && best != null && best.limit > 0 && avg > best.limit
-        last = EngineOutput(confirmed, over, if (best != null) bestD else null, avg, best?.limit ?: 0)
+        last = EngineOutput(confirmed, over, if (best != null) bestD else null, avg, best?.limit ?: 0, best?.lat, best?.lon, if (best != null) bestRule else "")
         return last
     }
 }
