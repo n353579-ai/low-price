@@ -448,4 +448,21 @@ class DetectionEngineTest {
         assertEquals(1, p.junctionsAhead(300.0))
         assertEquals(0, p.junctionsAhead(210.0))               // 200m 지점은 내 바로 뒤 15m 이내라 제외
     }
+
+    @Test fun poorGpsAccuracyWidensRoadMatching() {
+        // 도로 선에서 옆으로 40m 떨어진 위치가 계속 들어온다 (GPS가 거친 도심).
+        // 정확도 정보가 없으면(허용 30m) 도로 위가 아니라서 조용하고, 정확도 25m 라고 알려 주면(허용 50m) 알린다.
+        val road = pathLine(-1100.0 to 0.0, 0.0 to 0.0)
+        fun run(acc: Float): Stage {
+            val e = DetectionEngine(gridWithPaths(-1, road))
+            var o = e.update(fix(camLat, camLon, 0))
+            for (i in 0..40) {
+                val f = Fix(camLat + (-900.0 + 20.0 * i) / mPerDeg, camLon + 40.0 * lonPerM, 33f, 0f, true, i * 1000L, acc)
+                o = e.update(f)
+            }
+            return o.stage
+        }
+        assertEquals(Stage.HIDDEN, run(0f))
+        assertTrue(run(25f) != Stage.HIDDEN)
+    }
 }

@@ -206,6 +206,7 @@ class DrivingService : Service() {
                             if (loc.hasSpeed()) loc.speed else 0f,
                             loc.bearing, loc.hasBearing(),
                             SystemClock.elapsedRealtime(),
+                            if (loc.hasAccuracy()) loc.accuracy else 0f,
                         )
                         val o = engine.update(fix)
                         wakeIfNeeded(o.stage)
