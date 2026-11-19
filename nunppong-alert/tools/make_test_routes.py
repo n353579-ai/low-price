@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """실제 도로(OSM) 위를 달리는 가상 주행 경로를 만들어, 틀린 알림이 얼마나 나는지 재는 데 쓴다 (개발용).
 
-사용법:  python3 tools/make_test_routes.py <한국.osm.pbf> <출력 routes.txt> [경로 수=300] [--grid=격자파일]
+사용법:  python3 tools/make_test_routes.py <한국.osm.pbf> <출력 routes.txt> [경로 수=300] [--grid=격자파일] [--seed=7] [--limit-min=0] [--limit-max=999]
+         (--limit-min/max: 출발 근처 카메라의 제한속도 범위로 도로 종류를 고른다. 고속도로 100+, 국도 60~90, 시내 ~50)
 
 - 카메라 주변 도로에서 무작위로 출발해 약 4km 를 달린다 (교차로에서 70%는 직진, 30%는 무작위 방향).
 - 각 경로에 '이 경로 위에 실제로 있는 카메라'(카메라 좌표가 경로에서 25m 이내)를 정답으로 함께 적는다.
@@ -70,20 +71,26 @@ def resample(pts, step):
 
 def main(argv):
     flags = [a for a in argv[1:] if a.startswith("--grid=")]
+    opts = {a.split("=")[0]: a.split("=")[1] for a in argv[1:] if a.startswith("--") and "=" in a}
     args = [a for a in argv[1:] if not a.startswith("--")]
+    lim_min = int(opts.get("--limit-min", 0))
+    lim_max = int(opts.get("--limit-max", 999))
+    seed = int(opts.get("--seed", 7))
     if len(args) < 2:
         print(__doc__)
         return 2
     pbf, outp = args[0], args[1]
     n_routes = int(args[2]) if len(args) > 2 else 300
     grid = flags[0][7:] if flags else "app/src/main/assets/cameras.grid.txt"
-    rng = random.Random(7)
+    rng = random.Random(seed)
 
     cams = []
+    cam_limit = []
     for ln in open(grid, encoding="utf-8"):
         if ln.startswith("C "):
             p = ln.split()
             cams.append((float(p[1]), float(p[2])))
+            cam_limit.append(int(p[3]))
     print(f"카메라 {len(cams):,}개, 도로 읽는 중...")
     r = A.Roads()
     r.apply_file(pbf, locations=True)
@@ -103,7 +110,8 @@ def main(argv):
                 out += cam_cell.get((y, x), [])
         return out
 
-    starts = rng.sample(range(len(cams)), min(n_routes * 2, len(cams)))
+    pool = [i for i in range(len(cams)) if lim_min <= cam_limit[i] <= lim_max]
+    starts = rng.sample(pool, min(n_routes * 3, len(pool)))
     made = 0
     with open(outp, "w", encoding="utf-8", newline="\n") as f:
         for ci in starts:
