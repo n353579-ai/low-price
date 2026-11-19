@@ -372,4 +372,16 @@ class DetectionEngineTest {
         assertEquals(Stage.S1, out[54].stage)               // 420m
         assertEquals(Stage.S3, out[66].stage)               // 180m
     }
+
+    @Test fun longStopHidesAlertButShortStopKeepsIt() {
+        val e = DetectionEngine(grid(Camera(0, camLat, camLon, 100)))
+        val out = drive(e, upTo = 66)                          // 180m 앞, 3단계
+        assertEquals(Stage.S3, out[66].stage)
+        val lat = camLat - 180 / mPerDeg
+        var o = out[66]
+        for (k in 1..60) o = e.update(Fix(lat, camLon, 0f, 0f, true, (66 + k) * 1000L))   // 60초 정차(신호 대기)
+        assertEquals(Stage.S3, o.stage)                        // 짧은 정차는 유지
+        for (k in 61..100) o = e.update(Fix(lat, camLon, 0f, 0f, true, (66 + k) * 1000L)) // 100초째
+        assertEquals(Stage.HIDDEN, o.stage)                    // 오래 멈추면 끈다
+    }
 }
