@@ -15,15 +15,12 @@ object AlertStyle {
     enum class Phase { OFF, YELLOW, RED }
 
     /**
-     * 이 카메라를 몇 m 앞에서부터 알릴지. 빠른 도로일수록 멀리서.
-     * 제한속도 100 이상(고속도로) 1km, 80~99 700m, 그 아래(국도·시내) 500m, 모르면 700m.
+     * 이 카메라를 몇 m 앞에서부터 알릴지: 제한속도로 달릴 때 약 36초 전 (제한속도 km/h × 10m).
+     * 고속도로(100+)는 1km, 국도 60~80은 600~800m, 시내 50은 500m, 어린이보호구역 30~40은 300~400m.
+     * 느린 도로에서 멀리서 알리면 중간에 길을 꺾어 틀린 알림이 되는 비율이 크다 (실제 도로 가상 주행으로 측정).
+     * 제한속도를 모르면 700m.
      */
-    fun rangeM(limit: Int): Double = when {
-        limit >= 100 -> 1000.0
-        limit >= 80 -> 700.0
-        limit > 0 -> 500.0
-        else -> 700.0
-    }
+    fun rangeM(limit: Int): Double = if (limit <= 0) 700.0 else (limit * 10.0).coerceIn(300.0, 1000.0)
 
     /** 범위 안에서 거리별 단계: 가까울수록 3단계(빨강). 1km 범위는 예전과 같은 500m/300m 경계. */
     fun stageForDistance(meters: Double, range: Double = 1000.0): Stage {

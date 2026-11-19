@@ -137,7 +137,6 @@ class DetectionEngine(
                 passed = PassEvent(c, heading)
                 continue
             }
-            if (d < PASS_RADIUS_M && !stillApproaching) inside50.add(c.id)
             if (d > AlertStyle.rangeM(c.limit)) continue
 
             // 2a) 도로 선이 있는 카메라: 내가 그 선 위를 카메라 쪽으로 달리고 있으면 인정.
@@ -170,6 +169,9 @@ class DetectionEngine(
                     if (c.bearing >= 0 && Geo.angleDiff(heading, c.bearing.toDouble()) > CAMERA_BEARING_TOL) continue
                 }
             }
+            // 필터를 통과한(=알림 후보가 된) 카메라만 '50m 안'으로 등록한다.
+            // 걸러진 옆 도로 카메라가 다음 초에 필터 없이 통과하던 버그를 막는다.
+            if (d < PASS_RADIUS_M && !stillApproaching) inside50.add(c.id)
             if (eff < bestD) {
                 bestD = eff
                 best = c
