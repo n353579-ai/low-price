@@ -90,6 +90,10 @@ data class EngineOutput(
     val speedKmh: Double,
     /** 가장 가까운 카메라의 제한속도 (모르면 0) */
     val limit: Int = 0,
+    /** 지금 알리는 카메라 좌표와 알린 규칙 (기록·확인용) */
+    val camLat: Double? = null,
+    val camLon: Double? = null,
+    val rule: String = "",
 )
 
 /** 카메라를 방금 지나간 사건 (heading = 지나갈 때 진행방향) */
