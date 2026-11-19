@@ -31,8 +31,9 @@ class DetectionEngine(
         /** 카메라 전에 내가 꺾을 수 있는 갈림길이 이보다 많이 남았으면 아직 알리지 않는다 (중간에 꺾으면 틀린 알림이 되므로).
          * 실제 도로 1,560km 가상 주행으로 고른 값: 0~99 중 1이 틀린 알림 -20%, 정답 알림 -2%. */
         const val MAX_JUNCTIONS = 1
-        /** 카메라까지 이 거리 안이면 갈림길이 남아 있어도 알린다 */
+        /** 카메라까지 이 거리(또는 약 8초 거리) 안이면 갈림길이 남아 있어도 알린다 */
         const val JUNCTION_FREE_M = 150.0
+        const val JUNCTION_FREE_SEC = 8.0
         const val PATH_ANGLE = 45.0
         /** 안전망: 도로 선과 안 맞아도 이 거리 안에서 바로 정면(각도·옆거리 이내)이면 알린다.
          * 실제 도로 1,560km 가상 주행: 300m->100m 로 줄이면 틀린 알림 -59건, 못 울리는 카메라 +5개. */
@@ -46,6 +47,9 @@ class DetectionEngine(
         const val SPEED_WINDOW_MS = 3_000L
         /** 이만큼 계속 멈춰 있으면 알림을 끈다 (신호 대기는 버티고, 주차·도착 후에는 안 남게) */
         const val STILL_HIDE_MS = 90_000L
+        /** 멈춘 지 이 시간이 지났고 카메라가 이 거리보다 멀면 알림을 끈다 (막히는 길에서 멀리서부터 계속 울리지 않게). 카메라 바로 앞 신호 대기는 유지. */
+        const val STILL_FAR_HIDE_MS = 8_000L
+        const val STILL_FAR_M = 200.0
     }
 
     private val samples = ArrayDeque<Pair<Long, Double>>()
@@ -72,8 +76,8 @@ class DetectionEngine(
      * 카메라의 도로 선들 중 내가 올라타 있고 알림 범위 안인 선의 남은 거리(가장 짧은 것), 없으면 null.
      * 선 위에는 있지만 범위 밖이면(예: 아직 1km 이상 남음, 반대 차선 약한 경로) onPathButFar 를 켠다.
      */
-    private fun matchPath(c: Camera, lat: Double, lon: Double): Double? {
-        val range = AlertStyle.rangeM(c.limit)
+    private fun matchPath(c: Camera, lat: Double, lon: Double, range: Double, speedMps: Double): Double? {
+        val junctionFree = maxOf(JUNCTION_FREE_M, speedMps * JUNCTION_FREE_SEC)
         onPathButFar = false
         lastAnyRemain = null
         var best: Double? = null
@@ -81,7 +85,7 @@ class DetectionEngine(
             val r = p.matchRemaining(lat, lon, heading, PATH_LATERAL_M, PATH_ANGLE) ?: continue
             if (lastAnyRemain == null || r < lastAnyRemain!!) lastAnyRemain = r
             if (r > p.rangeM || r > range) { onPathButFar = true; continue }
-            if (r > JUNCTION_FREE_M && p.junctionsAhead(r) > MAX_JUNCTIONS) { onPathButFar = true; continue }
+            if (r > junctionFree && p.junctionsAhead(r) > MAX_JUNCTIONS) { onPathButFar = true; continue }
             if (best == null || r < best) best = r
         }
         return best
@@ -102,7 +106,9 @@ class DetectionEngine(
         // (평균뿐 아니라 현재 속도도 낮으면 정차로 본다: 신호 대기 중 단계가 꺼지지 않게)
         if (avg < MIN_SPEED_KMH || fix.speedMps * 3.6 < MIN_SPEED_KMH) {
             if (stillSince < 0) stillSince = now
-            if (now - stillSince >= STILL_HIDE_MS && last.stage != Stage.HIDDEN) {
+            val stillMs = now - stillSince
+            val farAlert = last.distanceM == null || last.distanceM!! > STILL_FAR_M
+            if (last.stage != Stage.HIDDEN && (stillMs >= STILL_HIDE_MS || (stillMs >= STILL_FAR_HIDE_MS && farAlert))) {
                 // 오래 멈춤: 단계·거리 기록을 모두 비운다. 다시 달리면 처음부터 판단한다.
                 confirmed = Stage.HIDDEN
                 pending = Stage.HIDDEN
@@ -125,6 +131,7 @@ class DetectionEngine(
         ignoreUntil.entries.removeAll { it.value <= now }
 
         val newDist = HashMap<Int, Double>()
+        val range = AlertStyle.rangeFor(avg / 3.6)
         var best: Camera? = null
         var bestD = Double.MAX_VALUE
 
@@ -136,7 +143,7 @@ class DetectionEngine(
             newDist[c.id] = d
             // 도로 선 위에서 카메라까지 아직 한참(100m 초과) 남았으면, 직선거리로 50m 안을 스쳐도
             // '통과'로 보지 않는다 (회전 램프·굽은 길이 카메라 옆을 지나갔다가 돌아오는 경우).
-            val roadRemain = if (c.paths.isNotEmpty()) matchPath(c, fix.lat, fix.lon) else null
+            val roadRemain = if (c.paths.isNotEmpty()) matchPath(c, fix.lat, fix.lon, range, avg / 3.6) else null
             val anyRemain = if (c.paths.isNotEmpty()) lastAnyRemain else null
             val stillApproaching = anyRemain != null && anyRemain > 2 * PASS_RADIUS_M
             if (stillApproaching) inside50.remove(c.id)
@@ -149,7 +156,7 @@ class DetectionEngine(
                 passed = PassEvent(c, heading)
                 continue
             }
-            if (d > AlertStyle.rangeM(c.limit)) continue
+            if (d > range) continue
 
             // 2a) 도로 선이 있는 카메라: 내가 그 선 위를 카메라 쪽으로 달리고 있으면 인정.
             //     남은 거리는 도로를 따라 잰다 (커브에서도 정확).
@@ -187,7 +194,7 @@ class DetectionEngine(
             if (eff < bestD) {
                 bestD = eff
                 best = c
-                bestRange = AlertStyle.rangeM(c.limit)
+                bestRange = range
                 bestRule = rule
             }
         }

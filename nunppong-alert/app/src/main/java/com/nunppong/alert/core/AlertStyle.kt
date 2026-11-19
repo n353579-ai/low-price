@@ -15,17 +15,16 @@ object AlertStyle {
     enum class Phase { OFF, YELLOW, RED }
 
     /**
-     * 이 카메라를 몇 m 앞에서부터 알릴지: 제한속도로 달릴 때 약 36초 전 (제한속도 km/h × 10m).
-     * 고속도로(100+)는 1km, 국도 60~80은 600~800m, 시내 50은 500m, 어린이보호구역 30~40은 300~400m.
-     * 느린 도로에서 멀리서 알리면 중간에 길을 꺾어 틀린 알림이 되는 비율이 크다 (실제 도로 가상 주행으로 측정).
-     * 제한속도를 모르면 700m.
+     * 몇 m 앞에서부터 알릴지: 지금 속도로 약 30초 전 (속도 m/s x 30m, 150~1000m).
+     * 빠를수록 멀리서, 느리거나 막혀 기어가면 가까이서. 시내 130km/h 과속에서도 빨강 경고가 충분히 길고,
+     * 서다 가다 하는 구간에서 멀리서부터 계속 울리지 않는다 (실제 도로 가상 주행으로 확인).
      */
-    fun rangeM(limit: Int): Double = if (limit <= 0) 700.0 else (limit * 10.0).coerceIn(300.0, 1000.0)
+    fun rangeFor(speedMps: Double): Double = (speedMps * 30.0).coerceIn(150.0, 1000.0)
 
-    /** 범위 안에서 거리별 단계: 가까울수록 3단계(빨강). 1km 범위는 예전과 같은 500m/300m 경계. */
+    /** 범위 안에서 거리별 단계: 범위의 60% 안은 2단계, 30% 안은 3단계(빨강, 약 9초 전). 범위 1km면 600m/300m. */
     fun stageForDistance(meters: Double, range: Double = 1000.0): Stage {
-        val s3 = minOf(300.0, 0.5 * range)
-        val s2 = minOf(500.0, 0.8 * range)
+        val s3 = maxOf(60.0, 0.3 * range)
+        val s2 = maxOf(120.0, 0.6 * range)
         return when {
             meters < 0 || meters > range -> Stage.HIDDEN
             meters > s2 -> Stage.S1

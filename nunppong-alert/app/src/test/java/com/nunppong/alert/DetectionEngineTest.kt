@@ -18,23 +18,23 @@ class DetectionEngineTest {
         return CameraGrid.parse(lines.asSequence())
     }
 
-    private fun fix(lat: Double, lon: Double, i: Int, mps: Float = 20f, bearing: Float = 0f) =
+    private fun fix(lat: Double, lon: Double, i: Int, mps: Float = 33f, bearing: Float = 0f) =
         Fix(lat, lon, mps, bearing, true, i * 1000L)
 
     /** 북쪽으로 달리며 카메라에 접근. i번째 fix 시점의 남은 거리 = 1500 - 20*i */
-    private fun drive(engine: DetectionEngine, mps: Float = 20f, upTo: Int): List<EngineOutput> {
+    private fun drive(engine: DetectionEngine, mps: Float = 33f, upTo: Int): List<EngineOutput> {
         val start = camLat - 1500 / mPerDeg
         return (0..upTo).map { i -> engine.update(fix(start + i * 20 / mPerDeg, camLon, i, mps)) }
     }
 
     @Test fun approachingStagesAndPass() {
         val e = DetectionEngine(grid(Camera(0, camLat, camLon, 100)))
-        val out = drive(e, upTo = 95)
+        val out = drive(e, mps = 27f, upTo = 95)          // 97km/h: 범위 810m
         assertEquals(Stage.HIDDEN, out[10].stage)        // 1300m
-        assertEquals(Stage.S1, out[35].stage)            // 800m
+        assertEquals(Stage.S1, out[38].stage)            // 740m
         assertEquals(Stage.S2, out[55].stage)            // 400m
         assertEquals(Stage.S3, out[65].stage)            // 200m
-        assertFalse(out[65].overspeed)                   // 72km/h <= 80
+        assertFalse(out[65].overspeed)                   // 97km/h <= 100
         assertEquals(Stage.HIDDEN, out[95].stage)        // 통과 후
     }
 
@@ -80,9 +80,9 @@ class DetectionEngineTest {
     @Test fun stageNeedsTwoConsecutiveResults() {
         val e = DetectionEngine(grid(Camera(0, camLat, camLon, 80)))
         val out = drive(e, upTo = 60)
-        // 거리 500m 이하(i>=50)가 처음 나온 직후에는 아직 S1이어야 한다
-        assertEquals(Stage.S1, out[50].stage)
-        assertEquals(Stage.S2, out[52].stage)
+        // 범위 990m(33m/s)의 60%=594m 이하(i>=46)가 처음 나온 직후에는 아직 S1이어야 한다
+        assertEquals(Stage.S1, out[46].stage)
+        assertEquals(Stage.S2, out[48].stage)
     }
 
     @Test fun gridParseAndNear() {
@@ -350,31 +350,48 @@ class DetectionEngineTest {
         assertEquals(Stage.S3, fromNorth[66].stage)            // 180m
     }
 
-    @Test fun alertRangeDependsOnSpeedLimit() {
-        assertEquals(1000.0, AlertStyle.rangeM(110), 0.1)   // 고속도로
-        assertEquals(800.0, AlertStyle.rangeM(80), 0.1)
-        assertEquals(600.0, AlertStyle.rangeM(60), 0.1)     // 국도·시내: 제한속도 km/h x 10m
-        assertEquals(500.0, AlertStyle.rangeM(50), 0.1)
-        assertEquals(300.0, AlertStyle.rangeM(30), 0.1)     // 어린이보호구역
-        assertEquals(300.0, AlertStyle.rangeM(20), 0.1)     // 하한 300m
-        assertEquals(700.0, AlertStyle.rangeM(0), 0.1)      // 제한속도 모름
-        // 500m 범위: 500m 밖은 숨김, 400m까지 1단계, 250m까지 2단계, 그 안은 3단계
-        assertEquals(Stage.HIDDEN, AlertStyle.stageForDistance(520.0, 500.0))
-        assertEquals(Stage.S1, AlertStyle.stageForDistance(450.0, 500.0))
-        assertEquals(Stage.S2, AlertStyle.stageForDistance(300.0, 500.0))
-        assertEquals(Stage.S3, AlertStyle.stageForDistance(200.0, 500.0))
-        // 1km 범위는 예전과 같다
+    @Test fun alertRangeIsAbout30SecondsAtCurrentSpeed() {
+        assertEquals(1000.0, AlertStyle.rangeFor(36.0), 0.1)    // 130km/h: 상한 1km
+        assertEquals(833.0, AlertStyle.rangeFor(27.8), 1.0)     // 100km/h
+        assertEquals(417.0, AlertStyle.rangeFor(13.9), 1.0)     // 50km/h
+        assertEquals(250.0, AlertStyle.rangeFor(8.3), 1.0)      // 30km/h
+        assertEquals(150.0, AlertStyle.rangeFor(2.0), 0.1)      // 기어갈 때: 하한 150m
+        // 범위의 60% 안은 2단계, 30% 안은 3단계
+        assertEquals(Stage.HIDDEN, AlertStyle.stageForDistance(1100.0))
         assertEquals(Stage.S1, AlertStyle.stageForDistance(800.0))
-        assertEquals(Stage.S2, AlertStyle.stageForDistance(400.0))
+        assertEquals(Stage.S2, AlertStyle.stageForDistance(500.0))
         assertEquals(Stage.S3, AlertStyle.stageForDistance(250.0))
+        assertEquals(Stage.S1, AlertStyle.stageForDistance(350.0, 500.0))
+        assertEquals(Stage.S2, AlertStyle.stageForDistance(250.0, 500.0))
+        assertEquals(Stage.S3, AlertStyle.stageForDistance(140.0, 500.0))
     }
 
-    @Test fun nationalRoadCameraStartsAt500m() {
-        val e = DetectionEngine(grid(Camera(0, camLat, camLon, 50)))
-        val out = drive(e, upTo = 80)                       // i번째 남은 거리 = 1500 - 20*i
-        assertEquals(Stage.HIDDEN, out[40].stage)           // 700m: 제한속도 50 도로에서는 아직 조용
-        assertEquals(Stage.S1, out[54].stage)               // 420m
-        assertEquals(Stage.S3, out[66].stage)               // 180m
+    @Test fun slowDriverGetsShorterRangeThanFastDriver() {
+        val slow = DetectionEngine(grid(Camera(0, camLat, camLon, 60)))
+        val fast = DetectionEngine(grid(Camera(0, camLat, camLon, 60)))
+        val outSlow = drive(slow, mps = 10f, upTo = 76)         // 300m 범위
+        val outFast = drive(fast, mps = 33f, upTo = 76)         // 1km 범위
+        assertEquals(Stage.HIDDEN, outSlow[40].stage)           // 700m
+        assertEquals(Stage.S1, outFast[40].stage)               // 700m: 빠르면 이미 알림
+        assertEquals(Stage.S3, outSlow[74].stage)               // 20m... 300m 범위의 30%=90m 안
+    }
+
+    @Test fun stoppedFarFromCameraHidesAfter8SecondsButNearOneStays() {
+        // 카메라 500m 앞에서 정차(막힘): 8초 뒤 꺼진다
+        val far = DetectionEngine(grid(Camera(0, camLat, camLon, 100)))
+        val out = drive(far, upTo = 50)                          // 500m 앞, 알림 켜짐
+        assertTrue(out[50].stage != Stage.HIDDEN)
+        val latFar = camLat - 500 / mPerDeg
+        var o = out[50]
+        for (k in 1..12) o = far.update(Fix(latFar, camLon, 0f, 0f, true, (50 + k) * 1000L))
+        assertEquals(Stage.HIDDEN, o.stage)
+        // 카메라 100m 앞 신호 대기: 60초 정차해도 유지 (90초 넘으면 꺼짐)
+        val near = DetectionEngine(grid(Camera(0, camLat, camLon, 100)))
+        val out2 = drive(near, upTo = 70)                        // 100m 앞
+        val latNear = camLat - 100 / mPerDeg
+        var o2 = out2[70]
+        for (k in 1..60) o2 = near.update(Fix(latNear, camLon, 0f, 0f, true, (70 + k) * 1000L))
+        assertEquals(Stage.S3, o2.stage)
     }
 
     @Test fun longStopHidesAlertButShortStopKeepsIt() {

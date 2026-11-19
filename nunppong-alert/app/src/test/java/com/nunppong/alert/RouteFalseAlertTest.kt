@@ -6,42 +6,23 @@ import org.junit.Test
 import java.io.File
 
 /**
- * 실제 도로 위를 가상으로 달려 '틀린 알림'을 센다 (개발용 측정 도구, 환경변수 ROUTES_FILE 이 있을 때만 실행).
- * routes.txt 는 tools/make_test_routes.py 로 만든다. GPS_NOISE_M(기본 4)으로 위치 흔들림을 넣는다.
+ * 실제 도로 위를 시나리오별로 가상 주행해 알림 품질을 잰다 (개발용 측정 도구).
+ * 환경변수 ROUTES_FILES="이름=경로파일,이름=경로파일" 이 있을 때만 실행. 경로 파일은 tools/make_test_routes.py 로 만든다.
+ * GPS_NOISE_M(기본 4)으로 위치 흔들림을 넣는다. 1초마다 한 번 위치를 넣는다(실제 폰과 같음).
  *
- * 분류:
- *  - 정답 알림: 알린 카메라가 내 경로 위(25m 이내)에 실제로 있음
- *  - 틀린 알림: 알린 카메라가 내 경로 위에 없음 (옆 도로·평행 도로·엉뚱한 카메라)
- *  - 놓침: 내 경로 위 카메라인데 도착 전에 3단계까지 알리지 못함
- *  - 꺼짐 지연: 틀린 알림에서, 내가 카메라의 도로 선을 30m 넘게 벗어난 뒤 알림이 꺼질 때까지 걸린 시간(초)
- *  - 끊김: 정답 알림이 카메라까지 80m 넘게 남았는데 꺼진 횟수
+ * 시나리오: 속도 50/72/100/110km/h 일정, 과속(130km/h), 서다 가다(막히는 시내), 가속·감속이 섞인 주행.
+ *
+ * 지표
+ *  - 틀린 알림: 알린 카메라가 내 경로 위(25m 이내)에 없음
+ *  - 놓침: 내 경로 위 카메라인데 3단계까지 못 울림
+ *  - 끊김: 맞는 알림이 카메라 80m 넘게 남았는데 꺼짐(카메라가 바뀐 경우 제외)
+ *  - 짧은 경고: 3단계(빨강)가 카메라 도착 전 5초 미만으로만 켜진 맞는 알림
+ *  - 정차 잔존: 멈춰 있는 동안(5초 이상) 켜져 있던 알림 시간 합(초)
  */
 class RouteFalseAlertTest {
     private class Route(val pts: List<DoubleArray>, val onRoute: Map<String, Int>)
 
     private fun key(la: Double, lo: Double) = String.format(java.util.Locale.US, "%.5f,%.5f", la, lo)
-
-    /** 점 (la,lo)에서 카메라의 도로 선들까지 가장 가까운 옆거리(m) */
-    private fun lateralToPaths(c: Camera, la: Double, lo: Double): Double {
-        val mLat = 111195.0
-        val mLon = mLat * Math.cos(Math.toRadians(la))
-        var best = Double.MAX_VALUE
-        for (p in c.paths) {
-            for (i in 0 until p.lat.size - 1) {
-                val ax = (p.lon[i] - lo) * mLon
-                val ay = (p.lat[i] - la) * mLat
-                val bx = (p.lon[i + 1] - lo) * mLon
-                val by = (p.lat[i + 1] - la) * mLat
-                val dx = bx - ax
-                val dy = by - ay
-                val ll = dx * dx + dy * dy
-                val t = if (ll < 1e-9) 0.0 else (-(ax * dx + ay * dy) / ll).coerceIn(0.0, 1.0)
-                val d = Math.hypot(ax + t * dx, ay + t * dy)
-                if (d < best) best = d
-            }
-        }
-        return best
-    }
 
     private fun load(f: File): List<Route> {
         val out = ArrayList<Route>()
@@ -60,112 +41,173 @@ class RouteFalseAlertTest {
         return out
     }
 
-    @Test fun measureFalseAlertsOnRealRoads() {
-        val env = System.getenv("ROUTES_FILE")
-        assumeTrue(env != null && File(env).exists())
-        val grid = File("src/main/assets/cameras.grid.txt").bufferedReader().useLines { CameraGrid.parse(it) }
-        val routes = load(File(env!!))
-        val noiseM = (System.getenv("GPS_NOISE_M") ?: "4").toDouble()
-        val rnd = java.util.Random(11)
+    /** 속도 곡선: 매초 다음 속도(m/s)를 돌려준다 */
+    private abstract class Driver { abstract fun next(rnd: java.util.Random): Double }
 
-        val speeds = floatArrayOf(14f, 20f)                       // 50, 72 km/h
-        var episodes = 0
-        var good = 0
-        var bad = 0
-        var onRouteCams = 0
-        var missed = 0
-        var dropouts = 0
-        var goodEnded = 0
-        val badByRule = HashMap<String, Int>()
-        val goodByRule = HashMap<String, Int>()
-        val lagHist = IntArray(5)
-        var km = 0.0
-        val dropEx = ArrayList<String>()
+    private class Cruise(val v: Double) : Driver() {
+        var cur = 0.0
+        override fun next(rnd: java.util.Random): Double { cur = minOf(v, cur + 2.0); return cur }
+    }
 
-        for ((ri, r) in routes.withIndex()) {
-            val mps = speeds[ri % speeds.size]
+    /** 막히는 시내: 서다(5~40초) 가다(10~40초) 반복, 최고 12m/s(43km/h) */
+    private class StopGo : Driver() {
+        var cur = 0.0
+        var phase = 0       // 0 정차, 1 주행
+        var left = 10
+        override fun next(rnd: java.util.Random): Double {
+            if (left <= 0) {
+                phase = 1 - phase
+                left = if (phase == 0) 5 + rnd.nextInt(36) else 10 + rnd.nextInt(31)
+            }
+            left--
+            cur = if (phase == 0) maxOf(0.0, cur - 2.5) else minOf(12.0, cur + 1.5)
+            return cur
+        }
+    }
+
+    /** 가속·감속이 섞인 주행: 15초마다 목표 속도를 바꿈 (8~25m/s) */
+    private class Variable : Driver() {
+        var cur = 8.0
+        var target = 15.0
+        var left = 0
+        override fun next(rnd: java.util.Random): Double {
+            if (left <= 0) { target = 8.0 + rnd.nextDouble() * 17.0; left = 15 }
+            left--
+            cur += (target - cur).coerceIn(-2.0, 1.5)
+            return cur
+        }
+    }
+
+    private class Stat {
+        var episodes = 0; var good = 0; var bad = 0
+        var onRouteCams = 0; var missed = 0
+        var dropouts = 0; var goodEnded = 0
+        var shortWarn = 0; var warnN = 0
+        var stoppedAlertSec = 0; var km = 0.0
+        val warn = ArrayList<Double>()
+    }
+
+    private fun simulate(grid: CameraGrid, routes: List<Route>, mkDriver: () -> Driver, noiseM: Double, seed: Long): Stat {
+        val st = Stat()
+        val rnd = java.util.Random(seed)
+        val mLat = 111195.0
+        for (r in routes) {
+            // 경로를 이어 붙인 길이(m) 계산
+            val n = r.pts.size
+            val cum = DoubleArray(n)
+            for (i in 1 until n) cum[i] = cum[i - 1] + Geo.distanceM(r.pts[i - 1][0], r.pts[i - 1][1], r.pts[i][0], r.pts[i][1])
+            val total = cum[n - 1]
             val e = DetectionEngine(grid)
+            val driver = mkDriver()
+            var s = 0.0
             var t = 0L
+            var seg = 0
+            var heading = 0.0
             var prevKey: String? = null
-            var epStart = -1
             var epBad = false
             var epKey = ""
-            var lastRule = ""
-            val alertedOn = HashSet<String>()                     // S3까지 간 정답 카메라
+            var epStartT = 0L
+            var s3Time = -1L
+            val alertedOn = HashSet<String>()
             val seenBad = HashSet<String>()
+            val passT = HashMap<String, Long>()
+            val s3T = HashMap<String, Long>()
+            var stoppedRun = 0
+            var alertWhileStopped = 0
 
-            fun endEpisode(i: Int, toHidden: Boolean) {
-                if (epStart < 0) return
-                if (epBad) {
-                    val la = epKey.substringBefore(',').toDouble()
-                    val lo = epKey.substringAfter(',').toDouble()
-                    val cam = grid.near(la, lo).firstOrNull { key(it.lat, it.lon) == epKey }
-                    if (cam != null && cam.paths.isNotEmpty()) {
-                        var dev = -1
-                        for (j in epStart until i) {
-                            if (lateralToPaths(cam, r.pts[j][0], r.pts[j][1]) > 30.0) { dev = j; break }
-                        }
-                        if (dev >= 0) {
-                            val lag = i - dev
-                            lagHist[when { lag <= 1 -> 0; lag == 2 -> 1; lag <= 4 -> 2; lag <= 8 -> 3; else -> 4 }]++
-                        }
-                    }
-                } else {
-                    goodEnded++
-                    val idxEnd = r.onRoute[epKey]
-                    if (toHidden && idxEnd != null && (idxEnd - i) * 20 > 80) {
-                        dropouts++
-                        if (dropEx.size < 30) dropEx += "route=$ri end=$i camIdx=$idxEnd remain=${(idxEnd - i) * 20}m cam=$epKey rule=${lastRule}"
-                    }
+            fun endEpisode(curIdx: Int, toHidden: Boolean) {
+                if (prevKey == null) return
+                if (!epBad) {
+                    st.goodEnded++
+                    val ix = r.onRoute[epKey]
+                    if (toHidden && ix != null && (ix - curIdx) * 20 > 80) st.dropouts++
                 }
-                epStart = -1
             }
 
-            for (i in 1 until r.pts.size) {
-                val a = r.pts[i - 1]
-                val b = r.pts[i]
-                val hd = Geo.bearingDeg(a[0], a[1], b[0], b[1])
+            while (s < total) {
+                val v = driver.next(rnd)
+                s += v
+                if (s >= total) break
+                while (seg < n - 2 && cum[seg + 1] < s) seg++
+                val f = if (cum[seg + 1] > cum[seg]) (s - cum[seg]) / (cum[seg + 1] - cum[seg]) else 0.0
+                val la = r.pts[seg][0] + f * (r.pts[seg + 1][0] - r.pts[seg][0])
+                val lo = r.pts[seg][1] + f * (r.pts[seg + 1][1] - r.pts[seg][1])
+                if (v > 0.5) heading = Geo.bearingDeg(r.pts[seg][0], r.pts[seg][1], r.pts[seg + 1][0], r.pts[seg + 1][1])
+                val curIdx = (s / 20.0).toInt()
                 t += 1000L
-                // 점 사이 20m 를 mps 로 가면 20/mps 초지만, 엔진은 1초 단위 입력이라 점마다 1초로 취급(속도값만 mps)
-                val nla = b[0] + rnd.nextGaussian() * noiseM / 111195.0
-                val nlo = b[1] + rnd.nextGaussian() * noiseM / (111195.0 * Math.cos(Math.toRadians(b[0])))
-                val o = e.update(Fix(nla, nlo, mps, hd.toFloat(), true, t))
-                if (o.stage == Stage.HIDDEN || o.camLat == null) { endEpisode(i, true); prevKey = null; continue }
-                lastRule = o.rule
+                // 카메라 통과 시각 기록 (경로 위 카메라 중 지나간 것)
+                for ((ck, ix) in r.onRoute) if (ix <= curIdx && !passT.containsKey(ck)) passT[ck] = t
+                val nla = la + rnd.nextGaussian() * noiseM / mLat
+                val nlo = lo + rnd.nextGaussian() * noiseM / (mLat * Math.cos(Math.toRadians(la)))
+                val o = e.update(Fix(nla, nlo, v.toFloat(), heading.toFloat(), true, t))
+
+                if (v < 0.5) stoppedRun++ else stoppedRun = 0
+                if (stoppedRun >= 5 && o.stage != Stage.HIDDEN) alertWhileStopped++
+
+                if (o.stage == Stage.HIDDEN || o.camLat == null) {
+                    endEpisode(curIdx, true); prevKey = null; continue
+                }
                 val k = key(o.camLat!!, o.camLon!!)
                 if (k != prevKey) {
-                    endEpisode(i, false)
+                    endEpisode(curIdx, false)
                     prevKey = k
-                    epStart = i
                     epKey = k
-                    episodes++
-                    val idx = r.onRoute[k]
-                    epBad = !(idx != null && idx >= i - 1)
-                    if (!epBad) {
-                        good++; goodByRule.merge(o.rule, 1, Int::plus)
-                    } else if (seenBad.add(k)) {
-                        bad++; badByRule.merge(o.rule, 1, Int::plus)
-                    }
+                    epStartT = t
+                    st.episodes++
+                    val ix = r.onRoute[k]
+                    epBad = !(ix != null && ix >= curIdx - 1)
+                    if (!epBad) st.good++ else if (seenBad.add(k)) st.bad++
                 }
                 if (o.stage == Stage.S3) {
                     val k2 = key(o.camLat!!, o.camLon!!)
-                    if (r.onRoute.containsKey(k2)) alertedOn.add(k2)
+                    if (r.onRoute.containsKey(k2)) { alertedOn.add(k2); s3T.putIfAbsent(k2, t) }
                 }
             }
-            endEpisode(r.pts.size - 1, false)
-            km += r.pts.size * 0.02
+            endEpisode((s / 20.0).toInt(), false)
+            st.km += total / 1000.0
+            st.stoppedAlertSec += alertWhileStopped
             for ((ck, ix) in r.onRoute) {
-                if (ix < 60) continue                             // 경로 시작 직후 카메라는 제외
-                onRouteCams++
-                if (ck !in alertedOn) missed++
+                if (ix < 60) continue
+                st.onRouteCams++
+                if (ck !in alertedOn) st.missed++
+                else {
+                    val p = passT[ck]
+                    val a = s3T[ck]
+                    if (p != null && a != null && p >= a) {
+                        val w = (p - a) / 1000.0
+                        st.warn.add(w); st.warnN++
+                        if (w < 5.0) st.shortWarn++
+                    }
+                }
             }
         }
-        println("RESULT 경로 ${routes.size}개 ${km.toInt()}km GPS흔들림 ${noiseM}m / 알림 $episodes 건: 정답 $good, 틀림 $bad (${100 * bad / maxOf(1, episodes)}%)")
-        println("RESULT 규칙별 정답 $goodByRule")
-        println("RESULT 규칙별 틀림 $badByRule")
-        println("RESULT 길 벗어난 뒤 꺼질 때까지(<=1초,2초,3~4초,5~8초,9초+) ${lagHist.toList()}")
-        println("RESULT 정답 알림 끊김 $dropouts / 끝난 정답 알림 $goodEnded")
-        dropEx.forEach { println("RESULT 끊김) $it") }
-        println("RESULT 경로 위 카메라 $onRouteCams 개 중 3단계 못 울림 $missed 개")
+        return st
+    }
+
+    @Test fun measureScenarios() {
+        val env = System.getenv("ROUTES_FILES")
+        assumeTrue(env != null)
+        val grid = File("src/main/assets/cameras.grid.txt").bufferedReader().useLines { CameraGrid.parse(it) }
+        val noiseM = (System.getenv("GPS_NOISE_M") ?: "4").toDouble()
+        val sets = env!!.split(',').map { it.substringBefore('=') to load(File(it.substringAfter('='))) }
+        val scenarios = listOf<Pair<String, () -> Driver>>(
+            "50km/h" to { Cruise(13.9) },
+            "72km/h" to { Cruise(20.0) },
+            "100km/h" to { Cruise(27.8) },
+            "130km/h(과속)" to { Cruise(36.1) },
+            "서다가다" to { StopGo() },
+            "가감속" to { Variable() },
+        )
+        println("RESULT 도로종류 | 시나리오 | km | 알림 | 틀림% | 놓침/경로위카메라 | 끊김 | 짧은경고(<5초)% | 경고시간중앙(초) | 정차중 켜진 초")
+        for ((setName, routes) in sets) {
+            for ((scName, mk) in scenarios) {
+                val st = simulate(grid, routes, mk, noiseM, 5)
+                val med = if (st.warn.isEmpty()) 0.0 else st.warn.sorted()[st.warn.size / 2]
+                println(
+                    "RESULT $setName | $scName | ${st.km.toInt()} | ${st.episodes} | ${100 * st.bad / maxOf(1, st.episodes)}% | " +
+                        "${st.missed}/${st.onRouteCams} | ${st.dropouts} | ${100 * st.shortWarn / maxOf(1, st.warnN)}% | ${"%.1f".format(med)} | ${st.stoppedAlertSec}"
+                )
+            }
+        }
     }
 }

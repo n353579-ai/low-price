@@ -15,10 +15,11 @@ class AlertStyleTest {
     }
 
     @Test fun stageThresholds() {
+        // 범위 1km 기준: 600m 안 2단계, 300m 안 3단계 (범위의 60%, 30%)
         assertEquals(Stage.HIDDEN, AlertStyle.stageForDistance(1001.0))
         assertEquals(Stage.S1, AlertStyle.stageForDistance(1000.0))
-        assertEquals(Stage.S1, AlertStyle.stageForDistance(501.0))
-        assertEquals(Stage.S2, AlertStyle.stageForDistance(500.0))
+        assertEquals(Stage.S1, AlertStyle.stageForDistance(601.0))
+        assertEquals(Stage.S2, AlertStyle.stageForDistance(600.0))
         assertEquals(Stage.S2, AlertStyle.stageForDistance(301.0))
         assertEquals(Stage.S3, AlertStyle.stageForDistance(300.0))
         assertEquals(Stage.S3, AlertStyle.stageForDistance(0.0))
