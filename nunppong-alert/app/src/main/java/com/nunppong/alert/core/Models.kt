@@ -25,6 +25,16 @@ data class Camera(
  */
 class CamPath(val lat: DoubleArray, val lon: DoubleArray, val rangeM: Double = Double.MAX_VALUE) {
     /** rangeM: 카메라까지 이 거리 이내일 때만 알린다 (방향이 확실하지 않은 쪽 접근 경로는 짧게). */
+    /** 이 선 위에서 내가 꺾어 나갈 수 있는 교차로까지의 "카메라까지 남은 거리"(m). 없으면 비어 있다. */
+    var junctions: IntArray = IntArray(0)
+
+    /**
+     * 카메라까지 도로를 따라 remainingM 남았을 때, 카메라 전에 지나야 할 갈림길 수.
+     * (카메라 바로 앞 25m 안의 갈림길과 내 바로 뒤 15m 안의 갈림길은 세지 않는다)
+     */
+    fun junctionsAhead(remainingM: Double): Int =
+        junctions.count { it > 25 && it < remainingM - 15.0 }
+
     /** 각 점에서 카메라(마지막 점)까지 도로를 따라 남은 거리(m) */
     private val remain = DoubleArray(lat.size)
 

@@ -11,6 +11,8 @@
 격자 파일 형식 (v2):  C 줄 바로 뒤에 P 줄이 0~2개 붙는다.
     P <위도*1e5> <경도*1e5> <dlat> <dlon> <dlat> <dlon> ...   (정수, 처음 점은 절대값, 나머지는 앞 점과의 차)
     마지막 점이 카메라가 붙은 도로 위의 위치다. 점은 접근하는 순서대로 나열한다.
+    Q 줄은 방향이 확실하지 않은 쪽 접근 경로(카메라 앞 200m 안에서만 알림).
+    J <거리m> <거리m> ...   바로 앞 P/Q 경로에서 내가 꺾어 나갈 수 있는 교차로까지의 "카메라까지 남은 거리"
 """
 import csv
 import math
@@ -255,7 +257,17 @@ class Graph:
                 pts = pts + [(float(self.lat[best]), float(self.lon[best]))]
                 nodes = nodes + [best]
                 visited = visited | {best}
-            done.append((pts[::-1], nodes[::-1]))
+            # 내가 꺾을 수 있는 교차로: 경로 위 노드에서 경로 말고 다른 갈 수 있는 길이 있는 곳 (카메라까지 남은 거리 m)
+            cum = [0.0]
+            for q in range(1, len(pts)):
+                cum.append(cum[-1] + hav(pts[q - 1][0], pts[q - 1][1], pts[q][0], pts[q][1]))
+            juncs = []
+            for q in range(1, len(nodes)):
+                succ = nodes[q - 1]
+                pred = nodes[q + 1] if q + 1 < len(nodes) else None
+                if any(int(x) != succ and int(x) != pred for x in self.nbrs(self.out_ptr, self.out_idx, nodes[q])):
+                    juncs.append(int(round(cum[q])))
+            done.append((pts[::-1], nodes[::-1], sorted(juncs)))
             if len(done) >= max_paths:
                 break
         return done
@@ -298,7 +310,7 @@ def main(argv):
     g = Graph(segs)
 
     with open(grid, encoding="utf-8") as f:
-        lines = [ln for ln in f.read().splitlines() if not ln.startswith(("P ", "Q "))]
+        lines = [ln for ln in f.read().splitlines() if not ln.startswith(("P ", "Q ", "J "))]
     out, stats = [], defaultdict(int)
     total_pts = 0
     for ln in lines:
@@ -384,13 +396,15 @@ def main(argv):
                 ok = s[4] == 0 or (s[4] == 1 and (a, b) == (u, v)) or (s[4] == -1 and (a, b) == (v, u))
                 if not ok or (a, b) in covered:
                     continue
-                for pts, nodes in g.approach_paths(a, b, clat, clon, PATH_M, MAX_PATHS - made):
+                for pts, nodes, juncs in g.approach_paths(a, b, clat, clon, PATH_M, MAX_PATHS - made):
                     covered.update(zip(nodes, nodes[1:]))
                     pts = simplify(pts, SIMPLIFY_M)
                     if len(pts) < 2:
                         continue
                     total_pts += len(pts)
                     out.append(encode(pts, weak))
+                    if juncs:
+                        out.append("J " + " ".join(str(x) for x in juncs))
                     stats["paths"] += 1
                     made += 1
         stats["cams_with_path"] += 1 if made else 0
