@@ -23,6 +23,7 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.nunppong.alert.core.AlertStyle
+import com.nunppong.alert.core.ApproachSpeeds
 import com.nunppong.alert.core.AlertEntry
 import com.nunppong.alert.core.AlertLog
 import com.nunppong.alert.core.CameraFeedback
@@ -64,6 +65,7 @@ class DrivingService : Service() {
         private const val NOTI_ID = 1
         const val FEEDBACK_NOTI_ID = 2
         private const val FEEDBACK_CHANNEL = "feedback"
+        private const val SUMMARY_NOTI_ID = 3
 
         fun startReal(ctx: Context, reason: Reason = Reason.MANUAL) {
             ctx.startForegroundService(
@@ -181,6 +183,7 @@ class DrivingService : Service() {
 
     // ---- 실제 주행: GPS 1초 간격 -> 판단 엔진 -> 오버레이 ----
     private fun startReal(reason: Reason) {
+        if (tripStartMs == 0L) tripStartMs = System.currentTimeMillis()
         isSim = false
         if (reason == Reason.MANUAL) {
             prefs.passengerUntil = 0L                     // 직접 시작하면 승객 모드 해제
@@ -210,8 +213,14 @@ class DrivingService : Service() {
                         )
                         val o = engine.update(fix)
                         wakeIfNeeded(o.stage)
-                        logAlert(o)
-                        engine.takePassed()?.let { askFeedback(it) }
+                        approach.add(fix.lat, fix.lon, o.speedKmh)
+                        logAlert(o, fix)
+                        engine.takePassed()?.let {
+                            AlertLog.get(this@DrivingService).markPass(
+                                AlertEntry.cameraKey(it.camera.lat, it.camera.lon), approach.profile(it.camera.lat, it.camera.lon)
+                            )
+                            askFeedback(it)
+                        }
                         val show = !prefs.overspeedOnly || o.limit <= 0 || o.speedKmh > o.limit + 5
                         overlay.update(if (show) o.stage else Stage.HIDDEN, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character, AlertStyle.proximity(o.distanceM), prefs.spread,
                             AlertStyle.calmLimit(prefs.calmMode, o.limit, o.speedKmh), o.distanceM?.toInt() ?: -1)
@@ -240,9 +249,11 @@ class DrivingService : Service() {
     }
 
     private var loggedKey: String? = null
+    private val approach = ApproachSpeeds()
+    private var tripStartMs = 0L
 
     /** 새 카메라로 알림이 시작될 때 한 번 기록한다 (설정 화면 '최근 알림 기록'에서 확인). */
-    private fun logAlert(o: EngineOutput) {
+    private fun logAlert(o: EngineOutput, fix: Fix) {
         val la = o.camLat
         val lo = o.camLon
         if (o.stage == Stage.HIDDEN || la == null || lo == null) {
@@ -253,7 +264,10 @@ class DrivingService : Service() {
         if (key == loggedKey) return
         loggedKey = key
         AlertLog.get(this).add(
-            AlertEntry(System.currentTimeMillis(), la, lo, o.limit, (o.distanceM ?: -1.0).toInt(), o.rule, o.speedKmh.toInt())
+            AlertEntry(
+                System.currentTimeMillis(), la, lo, o.limit, (o.distanceM ?: -1.0).toInt(), o.rule, o.speedKmh.toInt(),
+                heading = if (fix.hasBearing) fix.bearing.toInt() else -1,
+            )
         )
     }
 
@@ -328,6 +342,26 @@ class DrivingService : Service() {
         getSystemService(NotificationManager::class.java).notify(FEEDBACK_NOTI_ID, n)
     }
 
+    /** 주행이 끝나면 이번 주행에서 알린 카메라 수를 알려 주고, 앱에서 틀린 것만 큰 버튼으로 확인하게 한다 */
+    private fun notifyTripSummary() {
+        if (tripStartMs == 0L || isSim) return
+        val n = AlertLog.get(this).all().count { it.timeMs >= tripStartMs }
+        tripStartMs = 0L
+        if (n <= 0) return
+        val open = PendingIntent.getActivity(
+            this, 2, Intent(this, MainActivity::class.java).putExtra("open_review", true), PendingIntent.FLAG_IMMUTABLE
+        )
+        val noti = Notification.Builder(this, FEEDBACK_CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("이번 주행 알림 ${n}건")
+            .setContentText("틀린 알림이 있었으면 눌러서 확인해 주세요 (설정 > 최근 알림 기록)")
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setTimeoutAfter(6 * 60 * 60 * 1000L)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(SUMMARY_NOTI_ID, noti)
+    }
+
     /** 승객 모드: 위치 수집과 오버레이를 멈추고 1시간 뒤 자동 재개 */
     private fun enterPassenger() {
         if (!prefs.isPassengerActive()) prefs.passengerUntil = System.currentTimeMillis() + Passenger.DURATION_MS
@@ -383,6 +417,7 @@ class DrivingService : Service() {
     }
 
     override fun onDestroy() {
+        notifyTripSummary()
         stopWork()
         scope.cancel()
         overlay.remove()

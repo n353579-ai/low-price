@@ -26,7 +26,8 @@ class MainActivity : ComponentActivity() {
         com.nunppong.alert.vehicle.VehicleAssist.sync(this)
         setContent {
             NunppongTheme {
-                var tab by rememberSaveable { mutableIntStateOf(0) }
+                // 주행 후 알림을 눌러 들어오면 바로 설정(최근 알림 기록) 화면을 연다
+                var tab by rememberSaveable { mutableIntStateOf(if (intent?.getBooleanExtra("open_review", false) == true) 2 else 0) }
                 var refresh by remember { mutableIntStateOf(0) }
                 LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { refresh++ }
 

@@ -909,14 +909,14 @@ fun SettingsScreen() {
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    "알림이 시작된 카메라와 알린 규칙이에요. 틀린 알림이면 '지도로 보기'로 그 자리에 카메라가 있는지 확인해 보세요. 기록은 폰 안에만 저장돼요.",
+                    "주행이 끝난 뒤 여기서 확인해 주세요. 틀린 알림에 👎를 누르면 그 카메라를 그 방향에서 끕니다. '지도로 보기'로 그 자리를 볼 수 있어요. 기록은 폰 안에만 저장돼요.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (entries.isEmpty()) {
                     Text("아직 기록이 없어요.", style = MaterialTheme.typography.bodyMedium)
                 }
-                entries.take(15).forEach { e ->
+                entries.take(20).forEach { e ->
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -929,7 +929,24 @@ fun SettingsScreen() {
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (e.speeds.isNotEmpty()) {
+                                Text(
+                                    "카메라 300/150/50m 전 속도: ${e.speeds}km/h",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
+                        // 주차한 뒤에 누르는 큰 버튼: 아니에요(👎)는 그 카메라를 그 방향에서 끈다
+                        TextButton(onClick = {
+                            alertLog.setReview(e.timeMs, 1)
+                            entries = alertLog.all()
+                        }) { Text(if (e.review == 1) "👍✓" else "👍", fontSize = 22.sp) }
+                        TextButton(onClick = {
+                            alertLog.setReview(e.timeMs, 2)
+                            if (e.heading >= 0) com.nunppong.alert.core.CameraFeedback.get(ctx).block(e.camLat, e.camLon, e.heading.toDouble())
+                            entries = alertLog.all()
+                        }) { Text(if (e.review == 2) "👎✓" else "👎", fontSize = 22.sp) }
                         TextButton(onClick = {
                             val uri = Uri.parse("https://maps.google.com/?q=${e.camLat},${e.camLon}")
                             try {
