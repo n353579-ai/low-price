@@ -36,7 +36,7 @@ class Prefs(context: Context) {
 
     /** 단계가 바뀔 때 작은 캐릭터를 잠깐 보여준다 (기본 켜짐) */
     var character: Boolean
-        get() = sp.getBoolean("character", true)
+        get() = sp.getBoolean("character", false)
         set(v) = sp.edit().putBoolean("character", v).apply()
 
     /** 화면이 꺼져 있을 때 단속 구간에 가까워지면 화면을 잠깐 켠다 (기본 켜짐) */

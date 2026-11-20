@@ -774,21 +774,6 @@ fun SettingsScreen() {
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
 
-                var chr by remember { mutableStateOf(prefs.character) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("캐릭터 손가락 안내 (1·5·3)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "거리 단계가 바뀔 때 화면 가득 귀여운 캐릭터가 2초간 손가락을 보여주고 쏙 들어가요. 터치는 방해하지 않아요.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(checked = chr, onCheckedChange = { chr = it; prefs.character = it })
-                }
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-
                 var wake by remember { mutableStateOf(prefs.wakeScreen) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -987,7 +972,7 @@ fun SimulationScreen(refresh: Int, goPermissions: () -> Unit) {
     Page {
         Text("주행 시뮬레이션", style = MaterialTheme.typography.headlineLarge)
         Text(
-            "1.5km 전방에서 단속카메라에 접근하는 상황을 실제 테두리 오버레이와 캐릭터로 미리 체험해 보세요.",
+            "1.5km 전방에서 단속카메라에 접근하는 상황을 실제 테두리 오버레이와 큰 제한속도 표지판으로 미리 체험해 보세요.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
