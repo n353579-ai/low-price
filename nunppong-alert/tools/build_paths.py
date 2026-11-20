@@ -134,6 +134,68 @@ def text_vote(names, itlpc, la, lo):
     return votes[0]
 
 
+TEXT_PATH_M = 3000.0   # 설치장소 글자의 출발지/도착지를 도로를 따라 찾아볼 거리
+TEXT_NEAR_M = 70.0     # 그 지점이 도로 선에서 이 거리 안이면 '그 길 위에 있다'
+
+
+def all_places(names, name, la, lo, lo_m=60, hi_m=3500):
+    """이름이 같은 후보 지점 전부 (동명이인은 도로로 걸러낸다)"""
+    for v in name_variants(name):
+        pts = [p for p in names.get(v, []) if lo_m <= hav(la, lo, p[0], p[1]) <= hi_m]
+        if pts:
+            return pts
+    return []
+
+
+def dist_to_polys(polys, p):
+    best = 1e9
+    for pts in polys:
+        for k in range(len(pts) - 1):
+            d = A.seg_dist_and_bearing((pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1], 0), p[0], p[1])[0]
+            if d < best:
+                best = d
+    return best
+
+
+def graph_text_vote(g, segs, i0, names, itlpc_text, lat, lon):
+    """'A→B' 를 도로망으로 푼다: 출발지 A 가 카메라 뒤쪽 도로 위에 있고(또는 도착지 B 가 앞쪽 도로 위에 있으면)
+    그 방향이 단속 방향. 직선 방위로 비교하는 것과 달리 굽은 길에서도 맞다. -> 도로 방위각 또는 None"""
+    ab = parse_route_text(itlpc_text)
+    if not ab:
+        return None
+    pa = all_places(names, ab[0], lat, lon)
+    pb = all_places(names, ab[1], lat, lon)
+    if not pa and not pb:
+        return None
+    s = segs[i0]
+    u, v = int(g.node_of_seg_a[i0]), int(g.node_of_seg_b[i0])
+    d, b0, side = A.seg_dist_and_bearing(s, lat, lon)
+    clat, clon = lat, lon
+    polys = {}
+    for key, (a, b) in (("f", (u, v)), ("r", (v, u))):
+        ps = g.approach_paths(a, b, clat, clon, TEXT_PATH_M, MAX_PATHS)
+        polys[key] = [pts for pts, _, _ in ps]
+    if not polys["f"] or not polys["r"]:
+        return None
+    votes = []
+    for pts_list, src in ((pa, "A"), (pb, "B")):
+        if not pts_list:
+            continue
+        # 후보 지점 중 도로 선에 가장 가까이 붙는 것으로 판정 (동명이인이면 도로에 안 붙는 쪽은 버려진다)
+        df = min(dist_to_polys(polys["f"], p) for p in pts_list)
+        dr = min(dist_to_polys(polys["r"], p) for p in pts_list)
+        if min(df, dr) > TEXT_NEAR_M or abs(df - dr) < 25.0:
+            continue
+        behind_f = df < dr    # 이 지점은 f 방향의 '뒤쪽' 도로 위
+        if src == "A":
+            votes.append("f" if behind_f else "r")
+        else:
+            votes.append("r" if behind_f else "f")
+    if not votes or len(set(votes)) > 1:
+        return None
+    return b0 if votes[0] == "f" else (b0 + 180.0) % 360.0
+
+
 def simplify(pts, tol):
     """Douglas-Peucker (미터 근사)."""
     if len(pts) < 3:
@@ -406,6 +468,10 @@ def main(argv):
         out_bearing = bearing if why == "ok" else -1
         if why in ("side", "two_way", "ambiguous") and i0 is not None:
             tv = text_vote(names, itlpc.get((round(lat, 6), round(lon, 6)), ""), lat, lon) if names else None
+            if tv is None and names and pre[ci][3] != -2 and segs[i0][4] == 0:
+                tv = graph_text_vote(g, segs, i0, names, itlpc.get((round(lat, 6), round(lon, 6)), ""), lat, lon)
+                if tv is not None:
+                    stats["text_by_road"] += 1
             sv = bearing if why == "side" else None
             # 서로 다른 근거들의 방향 (이름, 방위, 단독으로도 강한가)
             ev = []
@@ -471,7 +537,8 @@ def main(argv):
             dirs = []   # (a, b, 약한 경로 여부)
             if bearing >= 0:
                 dirs.append(((u, v) if A.angle_diff(bearing, b0) < 90.0 else (v, u)) + (False,))
-            elif infer >= 0 and i == i0:
+            elif infer >= 0 and (i == i0 or min(A.angle_diff(infer, b0), 180.0 - A.angle_diff(infer, b0)) <= 35.0):
+                # 추정 방향이 있으면 같은 방향으로 나란한 다른 도로(평행 도로 등)도 같은 방향만 '강한 경로', 반대쪽은 '약한 경로'
                 fwd = A.angle_diff(infer, b0) < 90.0
                 dirs += [(u, v, not fwd), (v, u, fwd)]
             else:
