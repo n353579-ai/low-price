@@ -327,6 +327,16 @@ class DetectionEngineTest {
         assertEquals(Stage.HIDDEN, out[95].stage)             // 통과 후
     }
 
+    @Test fun learnedOppositeOnlyAlertsClose() {
+        // 지나며 '이 방향에선 카메라가 늘 왼쪽'이라고 배운 카메라: 강한 경로여도 약 4초 거리 안에서만 알린다.
+        val strong = pathLine(-1100.0 to 0.0, 0.0 to 0.0)
+        val e = DetectionEngine(gridWithPaths(-1, strong), learnedOpposite = { _, _ -> true })
+        val out = drive(e, upTo = 76)
+        assertEquals(Stage.HIDDEN, out[35].stage)             // 700m
+        assertEquals(Stage.HIDDEN, out[55].stage)             // 300m
+        assertEquals(Stage.S3, out[74].stage)                 // 20m 전: 그래도 알린다
+    }
+
     @Test fun weakPathAlertsOnlyWithin4Seconds() {
         // 반대쪽 접근이 약한 경로(Q 줄): 내 도로 위지만 약 4초 거리(33m/s면 132m) 밖에서는 조용, 안에서는 알린다.
         val weak = pathLine(-1100.0 to 0.0, 0.0 to 0.0).replaceFirst("P ", "Q ")

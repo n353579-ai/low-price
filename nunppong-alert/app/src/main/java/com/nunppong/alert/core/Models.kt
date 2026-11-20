@@ -109,4 +109,5 @@ data class EngineOutput(
 )
 
 /** 카메라를 방금 지나간 사건 (heading = 지나갈 때 진행방향) */
-data class PassEvent(val camera: Camera, val heading: Double)
+/** sideM: 지나가며 잰 카메라 위치 (내 진행방향 기준 +오른쪽 / -왼쪽, m). 못 쟀으면 null */
+data class PassEvent(val camera: Camera, val heading: Double, val sideM: Double? = null)
