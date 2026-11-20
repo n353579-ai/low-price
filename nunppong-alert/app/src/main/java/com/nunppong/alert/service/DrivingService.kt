@@ -26,6 +26,7 @@ import com.nunppong.alert.core.AlertStyle
 import com.nunppong.alert.core.ApproachSpeeds
 import com.nunppong.alert.core.AlertEntry
 import com.nunppong.alert.core.AlertLog
+import com.nunppong.alert.core.SideLearner
 import com.nunppong.alert.core.CameraFeedback
 import com.nunppong.alert.core.EngineOutput
 import com.nunppong.alert.core.PassEvent
@@ -200,7 +201,8 @@ class DrivingService : Service() {
             val grid = withContext(Dispatchers.Default) { CameraRepository.load(this@DrivingService) }
             StatusRepo.cameraCount.value = grid.count
             val feedback = CameraFeedback.get(this@DrivingService)
-            val engine = DetectionEngine(grid) { c, h -> feedback.isBlocked(c, h) }
+            val sideLearner = SideLearner.get(this@DrivingService)
+            val engine = DetectionEngine(grid, learnedOpposite = { c, h -> sideLearner.isOpposite(c, h) }, blocked = { c, h -> feedback.isBlocked(c, h) })
             val cb = object : LocationCallback() {
                 override fun onLocationResult(result: LocationResult) {
                     for (loc in result.locations) {
@@ -217,9 +219,10 @@ class DrivingService : Service() {
                         logAlert(o, fix)
                         engine.takePassed()?.let {
                             AlertLog.get(this@DrivingService).markPass(
-                                AlertEntry.cameraKey(it.camera.lat, it.camera.lon), approach.profile(it.camera.lat, it.camera.lon)
+                                AlertEntry.cameraKey(it.camera.lat, it.camera.lon), approach.profile(it.camera.lat, it.camera.lon), it.sideM?.toInt() ?: AlertEntry.SIDE_UNKNOWN
                             )
                             // 운전 중에는 묻지 않는다(알림창을 펼쳐 눌러야 해서 위험). 주행이 끝나면 앱의 '최근 알림 기록'에서 확인한다.
+                            it.sideM?.let { m -> sideLearner.record(it.camera.lat, it.camera.lon, it.heading, m) }
                         }
                         val show = !prefs.overspeedOnly || o.limit <= 0 || o.speedKmh > o.limit + 5
                         overlay.update(if (show) o.stage else Stage.HIDDEN, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character, AlertStyle.proximity(o.distanceM), prefs.spread,

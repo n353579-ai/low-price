@@ -880,7 +880,7 @@ fun SettingsScreen() {
         val clipboard = LocalClipboardManager.current
         val fmt = remember { java.text.SimpleDateFormat("MM/dd HH:mm:ss", java.util.Locale.KOREA) }
         fun line(e: com.nunppong.alert.core.AlertEntry) =
-            "${fmt.format(java.util.Date(e.timeMs))} · 제한 ${e.limit} · ${e.rule} · ${e.distM}m · ${e.speedKmh}km/h · https://maps.google.com/?q=${e.camLat},${e.camLon}"
+            "${fmt.format(java.util.Date(e.timeMs))} · 제한 ${e.limit} · ${e.rule} · ${e.distM}m · ${e.speedKmh}km/h${if (e.sideM != com.nunppong.alert.core.AlertEntry.SIDE_UNKNOWN) " · 카메라 " + (if (e.sideM >= 0) "오른쪽" else "왼쪽") + " ${Math.abs(e.sideM)}m" else ""} · https://maps.google.com/?q=${e.camLat},${e.camLon}"
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
@@ -914,6 +914,13 @@ fun SettingsScreen() {
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (e.sideM != com.nunppong.alert.core.AlertEntry.SIDE_UNKNOWN) {
+                                Text(
+                                    "지나갈 때 카메라 위치: 내 ${if (e.sideM >= 0) "오른쪽" else "왼쪽"} ${Math.abs(e.sideM)}m",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                             if (e.speeds.isNotEmpty()) {
                                 Text(
                                     "카메라 300/150/50m 전 속도: ${e.speeds}km/h",

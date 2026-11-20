@@ -15,6 +15,8 @@ package com.nunppong.alert.core
  */
 class DetectionEngine(
     private val source: CameraSource,
+    /** 내가 지나며 배운 '이 카메라는 이 방향에선 반대 차선' 이면 true -> 약한 경로처럼 아주 가까울 때만 알린다 */
+    private val learnedOpposite: (Camera, Double) -> Boolean = { _, _ -> false },
     /** 사용자가 👎로 끈 (카메라, 진행방향) 조합이면 true */
     private val blocked: (Camera, Double) -> Boolean = { _, _ -> false },
 ) {
@@ -32,6 +34,10 @@ class DetectionEngine(
         const val STICKY_RANGE = 1.15
         /** 방향이 확실하지 않은 쪽 접근 경로의 알림 거리: 속도 x 4초 (50~150m) */
         const val WEAK_SEC = 4.0
+        /** 카메라 옆 위치를 재는 구간(카메라까지 직선거리) */
+        const val SIDE_FROM_M = 70.0
+        const val SIDE_TO_M = 12.0
+        const val SIDE_MIN_SAMPLES = 3
         const val WEAK_MIN_M = 50.0
         const val WEAK_MAX_M = 150.0
         /** GPS 정확도가 나쁠 때 늘려 주는 옆 허용 오차의 상한 */
@@ -78,6 +84,9 @@ class DetectionEngine(
     private var last = EngineOutput(Stage.HIDDEN, false, null, 0.0)
     private var passed: PassEvent? = null
     private var stillSince = -1L
+    /** 카메라별로 접근하며 잰 '카메라가 내 오른쪽(+)/왼쪽(-) 몇 m' 표본 */
+    private val sideSamples = HashMap<Int, ArrayList<Double>>()
+    private var weakAll = false
 
     /** matchPath 직전 호출에서 '내가 선 위에 있지만 그 선의 알림 범위 밖'이었는지 */
     private var onPathButFar = false
@@ -102,7 +111,7 @@ class DetectionEngine(
             val r = p.matchRemaining(lat, lon, heading, lateralTol, angleTol) ?: continue
             if (lastAnyRemain == null || r < lastAnyRemain!!) lastAnyRemain = r
             // 방향이 확실하지 않은 쪽(약한 경로)은 약 4초 거리 안에서만 알린다 (안전장치: 추정이 틀려도 끝까지 조용하진 않다)
-            val pRange = if (p.rangeM < Double.MAX_VALUE) (speedMps * WEAK_SEC).coerceIn(WEAK_MIN_M, WEAK_MAX_M) else p.rangeM
+            val pRange = if (weakAll || p.rangeM < Double.MAX_VALUE) (speedMps * WEAK_SEC).coerceIn(WEAK_MIN_M, WEAK_MAX_M) else p.rangeM
             if (r > pRange * stick || r > range * stick) { onPathButFar = true; continue }
             if (!sticky && r > junctionFree && p.junctionsAhead(r) > MAX_JUNCTIONS) { onPathButFar = true; continue }
             if (best == null || r < best) best = r
@@ -161,6 +170,14 @@ class DetectionEngine(
             val d = Geo.distanceM(fix.lat, fix.lon, c.lat, c.lon)
             val prev = lastDist[c.id]
             newDist[c.id] = d
+            if (d in SIDE_TO_M..SIDE_FROM_M && prev != null && d < prev) {
+                var dif = Geo.bearingDeg(fix.lat, fix.lon, c.lat, c.lon) - heading
+                while (dif > 180) dif -= 360
+                while (dif < -180) dif += 360
+                val l = sideSamples.getOrPut(c.id) { ArrayList() }
+                if (l.size < 20) l.add(d * Math.sin(Math.toRadians(dif)))
+            }
+            weakAll = c.bearing < 0 && learnedOpposite(c, heading)
             // 도로 선 위에서 카메라까지 아직 한참(100m 초과) 남았으면, 직선거리로 50m 안을 스쳐도
             // '통과'로 보지 않는다 (회전 램프·굽은 길이 카메라 옆을 지나갔다가 돌아오는 경우).
             val roadRemain = if (c.paths.isNotEmpty()) matchPath(c, fix.lat, fix.lon, range, avg / 3.6, fix.accuracyM.toDouble(), prevAccepted.contains(c.id)) else null
@@ -173,7 +190,8 @@ class DetectionEngine(
             if (wasInside && prev != null && d > prev + PASS_MARGIN_M) {
                 inside50.remove(c.id)
                 ignoreUntil[c.id] = now + IGNORE_MS
-                passed = PassEvent(c, heading)
+                val ss = sideSamples.remove(c.id)
+                passed = PassEvent(c, heading, if (ss != null && ss.size >= SIDE_MIN_SAMPLES) ss.average() else null)
                 continue
             }
             if (d > range * (if (prevAccepted.contains(c.id)) STICKY_RANGE else 1.0)) continue

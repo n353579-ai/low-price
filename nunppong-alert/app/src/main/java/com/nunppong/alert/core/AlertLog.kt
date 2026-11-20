@@ -18,11 +18,15 @@ data class AlertEntry(
     val speeds: String = "",
     /** 주행 후 검토: 0 아직, 1 맞아요, 2 아니에요 */
     val review: Int = 0,
+    /** 지나며 잰 카메라 위치(+오른쪽/-왼쪽 m), 모르면 SIDE_UNKNOWN */
+    val sideM: Int = SIDE_UNKNOWN,
 ) {
     fun toLine(): String =
-        listOf(timeMs, camLat, camLon, limit, distM, rule, speedKmh, heading, speeds.ifEmpty { "_" }, review).joinToString("|")
+        listOf(timeMs, camLat, camLon, limit, distM, rule, speedKmh, heading, speeds.ifEmpty { "_" }, review, sideM).joinToString("|")
 
     companion object {
+        const val SIDE_UNKNOWN = 999
+
         fun parse(line: String): AlertEntry? {
             val p = line.split('|')
             if (p.size < 7) return null
@@ -32,6 +36,7 @@ data class AlertEntry(
                     heading = p.getOrNull(7)?.toIntOrNull() ?: -1,
                     speeds = p.getOrNull(8)?.takeIf { it != "_" } ?: "",
                     review = p.getOrNull(9)?.toIntOrNull() ?: 0,
+                    sideM = p.getOrNull(10)?.toIntOrNull() ?: SIDE_UNKNOWN,
                 )
             } catch (e: NumberFormatException) {
                 null
@@ -57,10 +62,10 @@ class AlertLogList(initial: List<AlertEntry> = emptyList(), private val save: (L
     }
 
     /** 카메라를 지난 뒤, 그 카메라의 가장 최근 기록에 속도 변화를 채운다 */
-    fun markPass(camKey: String, speeds: String): Boolean {
+    fun markPass(camKey: String, speeds: String, sideM: Int = AlertEntry.SIDE_UNKNOWN): Boolean {
         val i = items.indexOfFirst { it.key == camKey }
         if (i < 0) return false
-        items[i] = items[i].copy(speeds = speeds)
+        items[i] = items[i].copy(speeds = speeds, sideM = sideM)
         save(items.toList())
         return true
     }
