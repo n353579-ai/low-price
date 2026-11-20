@@ -219,7 +219,7 @@ class DrivingService : Service() {
                             AlertLog.get(this@DrivingService).markPass(
                                 AlertEntry.cameraKey(it.camera.lat, it.camera.lon), approach.profile(it.camera.lat, it.camera.lon)
                             )
-                            askFeedback(it)
+                            // 운전 중에는 묻지 않는다(알림창을 펼쳐 눌러야 해서 위험). 주행이 끝나면 앱의 '최근 알림 기록'에서 확인한다.
                         }
                         val show = !prefs.overspeedOnly || o.limit <= 0 || o.speedKmh > o.limit + 5
                         overlay.update(if (show) o.stage else Stage.HIDDEN, o.overspeed, prefs.isNightNow(), prefs.brightness, prefs.thickness, prefs.sidesOnly, prefs.yellowColor, prefs.redColor, prefs.character, AlertStyle.proximity(o.distanceM), prefs.spread,

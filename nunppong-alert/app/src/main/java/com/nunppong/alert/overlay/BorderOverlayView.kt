@@ -138,7 +138,7 @@ class BorderOverlayView(context: Context) : View(context) {
         }
         if (distM >= 0) {
             val label = if (distM >= 1000) String.format(java.util.Locale.US, "%.1fkm", distM / 1000f) else "${(distM / 10) * 10}m"
-            text.textSize = base * 0.22f
+            text.textSize = base * 0.26f
             val tw = text.measureText(label)
             val top = bottom + base * 0.03f
             rect.set(cx - tw / 2 - base * 0.05f, top, cx + tw / 2 + base * 0.05f, top + base * 0.30f)
