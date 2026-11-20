@@ -166,6 +166,60 @@ def simplify(pts, tol):
     return [p for p, k in zip(pts, keep) if k]
 
 
+PAIR_MIN_M = 3.0       # 쌍으로 보는 카메라 사이 거리 (같은 지점 중복 등록은 제외)
+PAIR_MAX_M = 40.0
+PAIR_SIDE_MIN_M = 5.0  # 도로를 가로지르는 방향 간격이 이 이상이어야 방향을 정한다
+PAIR_SIDE_STRONG_M = 20.0
+
+
+def pair_votes(cams):
+    """양방향 도로에서는 방향마다 카메라가 한 대씩 쌍으로 등록된 경우가 많다.
+    두 카메라의 '서로 상대적인' 위치만 보면 된다: 각 카메라는 자기가 단속하는 방향의 오른쪽 길가에 선다(우측통행).
+    (방향이 확실한 반대 방향 쌍 126개에서 100% 맞음 - 도로 중심선 오차의 영향을 받지 않는다)
+    cams: [(lat, lon, road축방위 또는 None)] -> {카메라번호: (추정 방위, 강한가)}"""
+    cell = defaultdict(list)
+    for i, c in enumerate(cams):
+        cell[(int(c[0] / 0.0005), int(c[1] / 0.0005))].append(i)
+    votes = defaultdict(list)   # i -> [(방위, |가로간격|)]
+    for i, (la, lo, ax) in enumerate(cams):
+        if ax is None:
+            continue
+        for y in range(int(la / 0.0005) - 1, int(la / 0.0005) + 2):
+            for x in range(int(lo / 0.0005) - 1, int(lo / 0.0005) + 2):
+                for j in cell.get((y, x), ()):
+                    if j <= i or cams[j][2] is None:
+                        continue
+                    d = hav(la, lo, cams[j][0], cams[j][1])
+                    if not (PAIR_MIN_M <= d <= PAIR_MAX_M):
+                        continue
+                    axj = cams[j][2]
+                    ad = A.angle_diff(ax, axj)
+                    if min(ad, 180.0 - ad) > 25.0:
+                        continue            # 같은 도로가 아니다
+                    mx = M_LAT * math.cos(math.radians((la + cams[j][0]) / 2))
+                    ve = (la - cams[j][0]) * 0 + (lo - cams[j][1]) * mx    # j -> i 동쪽 성분(m)
+                    vn = (la - cams[j][0]) * M_LAT                         # j -> i 북쪽 성분(m)
+                    ux, uy = math.sin(math.radians(ax)), math.cos(math.radians(ax))   # 도로 축 단위벡터(동,북)
+                    rx, ry = math.cos(math.radians(ax)), -math.sin(math.radians(ax))  # 축 방향의 오른쪽
+                    s = ve * rx + vn * ry                                   # i 가 j 의 오른쪽(+)에 있나
+                    a = ve * ux + vn * uy                                   # 도로를 따라 떨어진 거리
+                    if abs(s) < PAIR_SIDE_MIN_M or abs(a) > max(20.0, 2.0 * abs(s)):
+                        continue
+                    if s > 0:
+                        votes[i].append((ax % 360.0, abs(s)))
+                        votes[j].append(((ax + 180.0) % 360.0, abs(s)))
+                    else:
+                        votes[i].append(((ax + 180.0) % 360.0, abs(s)))
+                        votes[j].append((ax % 360.0, abs(s)))
+    out = {}
+    for i, vs in votes.items():
+        b0 = vs[0][0]
+        if any(A.angle_diff(b0, b) > 60.0 for b, _ in vs):
+            continue                        # 쌍마다 말이 다르면 포기
+        out[i] = (b0, max(w for _, w in vs) >= PAIR_SIDE_STRONG_M)
+    return out
+
+
 class Graph:
     """도로 구간을 노드 그래프로. out[u] = u에서 갈 수 있는 이웃, inn[v] = v로 들어올 수 있는 이웃."""
 
@@ -273,6 +327,13 @@ class Graph:
         return done
 
 
+def sum_dir(degs):
+    """방위각들의 평균(벡터 합)"""
+    x = sum(math.sin(math.radians(d)) for d in degs)
+    y = sum(math.cos(math.radians(d)) for d in degs)
+    return (math.degrees(math.atan2(x, y)) + 360.0) % 360.0
+
+
 def encode(pts, weak=False):
     q = [(int(round(la * 1e5)), int(round(lo * 1e5))) for la, lo in pts]
     out = [q[0][0], q[0][1]]
@@ -313,35 +374,59 @@ def main(argv):
         lines = [ln for ln in f.read().splitlines() if not ln.startswith(("P ", "Q ", "J "))]
     out, stats = [], defaultdict(int)
     total_pts = 0
+    # 1단계: 모든 카메라의 도로 구간·도로 축 방위 계산 -> 쌍 위치로 방향 투표
+    pre = []
+    for ln in lines:
+        if ln.startswith("C "):
+            p = ln.split()
+            la0, lo0 = float(p[1]), float(p[2])
+            b_, w_, i_ = A.assign(segs, idx, la0, lo0)
+            axis = A.seg_dist_and_bearing(segs[i_], la0, lo0)[1] if i_ is not None else None
+            pre.append((la0, lo0, axis, b_, w_, i_))
+    pv_all = pair_votes([(c[0], c[1], c[2]) for c in pre])
+    # 방향이 확실한 카메라로 검증: 쌍 규칙이 알려진 방향과 얼마나 맞나
+    for ci_, c in enumerate(pre):
+        if c[4] == "ok" and ci_ in pv_all:
+            stats["pair_check_ok" if A.angle_diff(pv_all[ci_][0], c[3]) <= 60.0 else "pair_check_bad"] += 1
+    ci = -1
     for ln in lines:
         out.append(ln)
         if not ln.startswith("C "):
             continue
+        ci += 1
         p = ln.split()
         lat, lon = float(p[1]), float(p[2])
-        bearing, why, i0 = A.assign(segs, idx, lat, lon)
+        bearing, why, i0 = pre[ci][3], pre[ci][4], pre[ci][5]
+        pv = pv_all.get(ci)
         # 방향 근거: (1) 상·하행이 따로 그려진 도로(ok) = 확정
         #           (2) 길가 위치(side, 약 96%)  (3) 설치장소 글자 'A→B' 가 가리키는 방향
         # 확정(ok)이거나 (2)(3)이 서로 같은 방향이면 방향각을 기록해 반대 차선을 끝까지 막는다(검증 정확도 99%).
         # 근거가 하나뿐이면 방향각은 쓰지 않고, 반대쪽 접근 경로만 '약한 경로'(200m 안에서만 알림)로 둔다.
         infer = -1          # 길가/글자로 추정한 방향 (약한 근거)
         out_bearing = bearing if why == "ok" else -1
-        if why in ("side", "two_way") and i0 is not None:
+        if why in ("side", "two_way", "ambiguous") and i0 is not None:
             tv = text_vote(names, itlpc.get((round(lat, 6), round(lon, 6)), ""), lat, lon) if names else None
             sv = bearing if why == "side" else None
-            if sv is not None and tv is not None:
-                if A.angle_diff(sv, tv) <= 60.0:
-                    out_bearing = bearing = sv
-                    stats["strong_side+text"] += 1
-                else:
-                    stats["conflict_side_text"] += 1
+            # 서로 다른 근거들의 방향 (이름, 방위, 단독으로도 강한가)
+            ev = []
+            if sv is not None:
+                ev.append(("side", sv, False))
+            if tv is not None:
+                ev.append(("text", tv, False))
+            if pv is not None:
+                ev.append(("pair", pv[0], pv[1]))
+            if ev:
+                base = ev[0][1]
+                if any(A.angle_diff(base, e[1]) > 60.0 for e in ev):
+                    stats["conflict_evidence"] += 1
                     bearing = -1
-            elif sv is not None:
-                infer = sv
-                stats["weak_side"] += 1
-            elif tv is not None:
-                infer = int(round(tv)) % 360
-                stats["weak_text"] += 1
+                elif len(ev) >= 2 or ev[0][2]:
+                    # 근거 2개 이상이 같은 방향이거나, 쌍 간격이 충분히 넓으면 확정
+                    out_bearing = bearing = int(round(sum_dir([e[1] for e in ev]))) % 360
+                    stats["strong_" + "+".join(e[0] for e in ev)] += 1
+                else:
+                    infer = int(round(base)) % 360
+                    stats["weak_" + ev[0][0]] += 1
         if why != "ok" and out_bearing < 0:
             bearing = -1
         out[-1] = f"C {p[1]} {p[2]} {p[3]} {out_bearing}"

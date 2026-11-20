@@ -25,6 +25,7 @@ class BorderOverlayView(context: Context) : View(context) {
     private var lastPhase: AlertStyle.Phase? = null
     private var charOn = false
     private var calmLimit = 0
+    private var signLimit = 0
     private var distM = -1
     private var proximity = 0f
     private var spread = 1f
@@ -62,14 +63,15 @@ class BorderOverlayView(context: Context) : View(context) {
         stage: Stage, overspeed: Boolean, night: Boolean, brightness: Float, thickness: Float,
         sidesOnly: Boolean = false, yellow: Int = AlertStyle.YELLOW_DAY, red: Int = AlertStyle.RED_DAY,
         character: Boolean = false, proximity: Float = 0f, spread: Float = 1f,
-        calmLimit: Int = 0, distanceM: Int = -1,
+        calmLimit: Int = 0, distanceM: Int = -1, signLimit: Int = 0,
     ) {
         this.calmLimit = calmLimit
+        this.signLimit = signLimit
         this.distM = distanceM
         this.proximity = proximity
         this.spread = spread
-        charOn = character
-        if (character && CharacterStyle.shouldShow(prevStage, stage)) {
+        charOn = false   // 캐릭터는 뺐다 (제한속도 표지판·거리 숫자로 대체)
+        if (false && character && CharacterStyle.shouldShow(prevStage, stage)) {
             charStage = stage
             charStart = SystemClock.uptimeMillis()
             removeCallbacks(charTicker)
@@ -100,8 +102,8 @@ class BorderOverlayView(context: Context) : View(context) {
     private fun charShowing() = charOn && SystemClock.uptimeMillis() - charStart < CharacterStyle.SHOW_MS
 
     override fun onDraw(canvas: Canvas) {
-        if (calmLimit <= 0) drawBorder(canvas) else drawSign(canvas)
-        drawCharacter(canvas)
+        if (calmLimit <= 0) drawBorder(canvas)   // 제한속도를 안 지키는 중(또는 모름)이면 테두리도 깜빡인다
+        drawSign(canvas)                          // 표지판과 거리는 알림 중에는 늘 크게
     }
 
     private val signText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -109,32 +111,44 @@ class BorderOverlayView(context: Context) : View(context) {
         isFakeBoldText = true
     }
 
-    /** 제한속도를 지키는 중: 깜빡임 없이 화면 위쪽에 큰 속도 표지판(제한속도)과 남은 거리를 보여준다. */
+    /**
+     * 알림 중에는 늘: 화면 위쪽에 아주 큰 제한속도 표지판(빨간 테두리 원)과 그 아래 아주 큰 남은 거리.
+     * 운전 중 잠깐 흘끗 봐도 읽히게 화면 폭의 약 60% 크기로 그린다. 거리 상자는 단계 색(노랑/빨강).
+     */
     private fun drawSign(canvas: Canvas) {
         if (stage == Stage.HIDDEN) return
-        val d = resources.displayMetrics.density
         val dim = brightness * (if (night) AlertStyle.NIGHT_FACTOR else 1f)
         val a = (255 * dim).toInt().coerceIn(0, 255)
-        val r = 95f * d
+        val base = minOf(width, height).toFloat()
+        val r = base * 0.30f
         val cx = width / 2f
-        val cy = height * 0.22f
-        fill.color = 0xFFFFFFFF.toInt(); fill.alpha = a
-        canvas.drawCircle(cx, cy, r, fill)
-        paint.color = 0xFFE53935.toInt(); paint.alpha = a
-        paint.strokeWidth = 16f * d
-        canvas.drawCircle(cx, cy, r - 8f * d, paint)
-        signText.color = 0xFF111111.toInt(); signText.alpha = a
-        signText.textSize = (if (calmLimit >= 100) 64f else 78f) * d
-        canvas.drawText(calmLimit.toString(), cx, cy + signText.textSize * 0.35f, signText)
+        val cy = height * 0.04f + r + base * 0.04f
+        var bottom = cy - r
+        if (signLimit > 0) {
+            fill.color = 0xFFFFFFFF.toInt(); fill.alpha = a
+            canvas.drawCircle(cx, cy, r, fill)
+            val ring = r * 0.17f
+            paint.color = 0xFFE53935.toInt(); paint.alpha = a
+            paint.strokeWidth = ring
+            canvas.drawCircle(cx, cy, r - ring / 2f, paint)
+            signText.color = 0xFF111111.toInt(); signText.alpha = a
+            signText.textSize = if (signLimit >= 100) r * 0.78f else r * 0.95f
+            canvas.drawText(signLimit.toString(), cx, cy + signText.textSize * 0.35f, signText)
+            bottom = cy + r
+        }
         if (distM >= 0) {
-            val label = (if (distM >= 1000) String.format(java.util.Locale.US, "%.1fkm", distM / 1000f) else "${(distM / 10) * 10}m")
-            text.textSize = 34f * d
+            val label = if (distM >= 1000) String.format(java.util.Locale.US, "%.1fkm", distM / 1000f) else "${(distM / 10) * 10}m"
+            text.textSize = base * 0.22f
             val tw = text.measureText(label)
-            rect.set(cx - tw / 2 - 16 * d, cy + r + 8 * d, cx + tw / 2 + 16 * d, cy + r + 8 * d + 48 * d)
-            fill.color = 0xFF000000.toInt(); fill.alpha = (a * 0.75f).toInt()
-            canvas.drawRoundRect(rect, 24 * d, 24 * d, fill)
+            val top = bottom + base * 0.03f
+            rect.set(cx - tw / 2 - base * 0.05f, top, cx + tw / 2 + base * 0.05f, top + base * 0.30f)
+            val isYellow = stage == Stage.S1
+            fill.color = if (isYellow) yellow else red
+            fill.alpha = a
+            canvas.drawRoundRect(rect, base * 0.06f, base * 0.06f, fill)
+            text.color = if (isYellow) 0xFF111111.toInt() else 0xFFFFFFFF.toInt()
             text.alpha = a
-            canvas.drawText(label, cx, rect.bottom - 11 * d, text)
+            canvas.drawText(label, cx, rect.centerY() + text.textSize * 0.35f, text)
         }
     }
 

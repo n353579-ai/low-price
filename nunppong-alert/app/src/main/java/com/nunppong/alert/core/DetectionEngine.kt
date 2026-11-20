@@ -30,6 +30,10 @@ class DetectionEngine(
         const val PATH_LATERAL_M = 30.0
         /** 이미 알리는 중인 카메라의 범위 경계 여유 배율 */
         const val STICKY_RANGE = 1.15
+        /** 방향이 확실하지 않은 쪽 접근 경로의 알림 거리: 속도 x 4초 (50~150m) */
+        const val WEAK_SEC = 4.0
+        const val WEAK_MIN_M = 50.0
+        const val WEAK_MAX_M = 150.0
         /** GPS 정확도가 나쁠 때 늘려 주는 옆 허용 오차의 상한 */
         const val PATH_LATERAL_MAX_M = 60.0
         /** 카메라 전에 내가 꺾을 수 있는 갈림길이 이보다 많이 남았으면 아직 알리지 않는다 (중간에 꺾으면 틀린 알림이 되므로).
@@ -97,7 +101,9 @@ class DetectionEngine(
         for (p in c.paths) {
             val r = p.matchRemaining(lat, lon, heading, lateralTol, angleTol) ?: continue
             if (lastAnyRemain == null || r < lastAnyRemain!!) lastAnyRemain = r
-            if (r > p.rangeM * stick || r > range * stick) { onPathButFar = true; continue }
+            // 방향이 확실하지 않은 쪽(약한 경로)은 약 4초 거리 안에서만 알린다 (안전장치: 추정이 틀려도 끝까지 조용하진 않다)
+            val pRange = if (p.rangeM < Double.MAX_VALUE) (speedMps * WEAK_SEC).coerceIn(WEAK_MIN_M, WEAK_MAX_M) else p.rangeM
+            if (r > pRange * stick || r > range * stick) { onPathButFar = true; continue }
             if (!sticky && r > junctionFree && p.junctionsAhead(r) > MAX_JUNCTIONS) { onPathButFar = true; continue }
             if (best == null || r < best) best = r
         }

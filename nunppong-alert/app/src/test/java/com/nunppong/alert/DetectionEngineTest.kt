@@ -327,14 +327,15 @@ class DetectionEngineTest {
         assertEquals(Stage.HIDDEN, out[95].stage)             // 통과 후
     }
 
-    @Test fun weakPathAlertsOnlyWithin200m() {
-        // 반대쪽 접근이 약한 경로(Q 줄): 내 도로 위지만 200m 밖에서는 조용, 200m 안에서는 알린다.
+    @Test fun weakPathAlertsOnlyWithin4Seconds() {
+        // 반대쪽 접근이 약한 경로(Q 줄): 내 도로 위지만 약 4초 거리(33m/s면 132m) 밖에서는 조용, 안에서는 알린다.
         val weak = pathLine(-1100.0 to 0.0, 0.0 to 0.0).replaceFirst("P ", "Q ")
         val e = DetectionEngine(gridWithPaths(-1, weak))
-        val out = drive(e, upTo = 70)
+        val out = drive(e, upTo = 76)
         assertEquals(Stage.HIDDEN, out[35].stage)             // 700m
         assertEquals(Stage.HIDDEN, out[55].stage)             // 300m: 정면이어도 약한 경로면 조용
-        assertEquals(Stage.S3, out[66].stage)                 // 180m
+        assertEquals(Stage.HIDDEN, out[66].stage)             // 180m: 아직 범위(132m) 밖
+        assertEquals(Stage.S3, out[74].stage)                 // 20m 전: 알림
     }
 
     @Test fun strongAndWeakPathsTogether() {
@@ -345,9 +346,10 @@ class DetectionEngineTest {
         val fromSouth = drive(DetectionEngine(g), upTo = 40)
         assertEquals(Stage.S1, fromSouth[35].stage)            // 800m
         val e2 = DetectionEngine(g)
-        val fromNorth = (0..70).map { i -> e2.update(at(1500.0 - 20.0 * i, 0.0, i, 180f)) }
+        val fromNorth = (0..76).map { i -> e2.update(at(1500.0 - 20.0 * i, 0.0, i, 180f)) }
         assertEquals(Stage.HIDDEN, fromNorth[45].stage)        // 600m
-        assertEquals(Stage.S3, fromNorth[66].stage)            // 180m
+        assertEquals(Stage.HIDDEN, fromNorth[66].stage)        // 180m
+        assertEquals(Stage.S3, fromNorth[74].stage)            // 약 4초 거리 안
     }
 
     @Test fun alertRangeIsAbout30SecondsAtCurrentSpeed() {
