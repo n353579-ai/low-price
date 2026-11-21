@@ -40,6 +40,8 @@ jobs:
           if [ "$withpath" -lt $((new * 9 / 10)) ]; then
             echo "도로 선이 붙은 카메라가 90% 미만이라 교체하지 않습니다"; exit 1
           fi
+          # 사람이 확인한 제한속도 수정을 덮어쓴다 (data/limit_fixes.csv)
+          python3 tools/apply_fixes.py /tmp/new.grid.txt data/limit_fixes.csv
           cp /tmp/new.grid.txt app/src/main/assets/cameras.grid.txt
           # 수동 CSV가 남아 있으면 빌드가 옛 CSV로 덮어쓰므로 지운다
           git rm -q --ignore-unmatch data/*.csv || true
