@@ -62,7 +62,7 @@ def main(argv):
         if best is None:
             print(f"경고: ({lat},{lon}) 가까운 카메라 없음 - 건너뜀 {note}")
             continue
-        cr = "" if lines[best[1]].endswith("") else ""
+        cr = chr(13) if lines[best[1]].endswith(chr(13)) else ""
         p = lines[best[1]].split()
         p[3] = str(lim)
         lines[best[1]] = " ".join(p) + cr
