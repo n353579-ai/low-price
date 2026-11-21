@@ -102,8 +102,36 @@ class BorderOverlayView(context: Context) : View(context) {
     private fun charShowing() = charOn && SystemClock.uptimeMillis() - charStart < CharacterStyle.SHOW_MS
 
     override fun onDraw(canvas: Canvas) {
+        drawAlarm(canvas)                         // 3단계 과속이면 화면 전체가 붉게 점멸 (2Hz 이하)
         if (calmLimit <= 0) drawBorder(canvas)   // 제한속도를 안 지키는 중(또는 모름)이면 테두리도 깜빡인다
         drawSign(canvas)                          // 표지판과 거리는 알림 중에는 늘 크게
+    }
+
+    /** 카메라가 가깝고(3단계) 제한속도를 넘는 중: 화면 전체를 붉게 점멸시키고 큰 글씨로 감속을 알린다. 점멸은 AlertStyle 의 2Hz 를 넘지 않는다. */
+    private fun drawAlarm(canvas: Canvas) {
+        if (stage != Stage.S3 || !overspeed) return
+        val phase = AlertStyle.phase(stage, SystemClock.uptimeMillis())
+        val on = phase != AlertStyle.Phase.OFF
+        val dim = brightness * (if (night) AlertStyle.NIGHT_FACTOR else 1f)
+        if (on) {
+            fill.color = red
+            fill.alpha = (255 * 0.32f * dim).toInt().coerceIn(0, 255)
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fill)
+        }
+        val base = minOf(width, height).toFloat()
+        val msg = "속도를 줄이세요"
+        text.textSize = base * 0.115f
+        val tw = text.measureText(msg)
+        val cx = width / 2f
+        val cy = height * 0.78f
+        rect.set(cx - tw / 2 - base * 0.05f, cy - base * 0.10f, cx + tw / 2 + base * 0.05f, cy + base * 0.10f)
+        fill.color = if (on) red else 0xFFFFFFFF.toInt()
+        fill.alpha = (255 * dim).toInt().coerceIn(0, 255)
+        canvas.drawRoundRect(rect, base * 0.04f, base * 0.04f, fill)
+        text.color = if (on) 0xFFFFFFFF.toInt() else red
+        text.alpha = (255 * dim).toInt().coerceIn(0, 255)
+        canvas.drawText(msg, cx, cy + text.textSize * 0.35f, text)
+        text.color = 0xFFFFFFFF.toInt()
     }
 
     private val signText = Paint(Paint.ANTI_ALIAS_FLAG).apply {

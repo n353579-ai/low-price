@@ -38,6 +38,10 @@ class DetectionEngine(
         const val SIDE_FROM_M = 70.0
         const val SIDE_TO_M = 12.0
         const val SIDE_MIN_SAMPLES = 3
+        /** 카메라 위치(도로 선 끝)에 이만큼(속도x이 초 + 5m, 10~35m) 가까워지면 '지나간 것'으로 보고 바로 끈다. GPS 지연 때문에 실제로는 이미 지나가 있다. */
+        const val PASS_LAG_SEC = 1.0
+        const val PASS_NEAR_MIN_M = 10.0
+        const val PASS_NEAR_MAX_M = 35.0
         const val WEAK_MIN_M = 50.0
         const val WEAK_MAX_M = 150.0
         /** GPS 정확도가 나쁠 때 늘려 주는 옆 허용 오차의 상한 */
@@ -225,6 +229,16 @@ class DetectionEngine(
                     }
                     if (c.bearing >= 0 && Geo.angleDiff(heading, c.bearing.toDouble()) > CAMERA_BEARING_TOL) continue
                 }
+            }
+            // 도로 선 위에서 카메라 위치에 거의 닿았으면 통과로 본다 (내비처럼 카메라 앞에서 바로 꺼진다)
+            // (직선거리도 가까울 때만: 도로 선이 겹치는 일부 곳에서 도로 거리가 잘못 짧게 잴 때 일찍 꺼지지 않게)
+            val nearM = (avg / 3.6 * PASS_LAG_SEC + 5.0).coerceIn(PASS_NEAR_MIN_M, PASS_NEAR_MAX_M)
+            if (eff <= nearM && d <= nearM + 25.0) {
+                inside50.remove(c.id)
+                ignoreUntil[c.id] = now + IGNORE_MS
+                val ss = sideSamples.remove(c.id)
+                passed = PassEvent(c, heading, if (ss != null && ss.size >= SIDE_MIN_SAMPLES) ss.average() else null)
+                continue
             }
             accepted.add(c.id)
             // 필터를 통과한(=알림 후보가 된) 카메라만 '50m 안'으로 등록한다.

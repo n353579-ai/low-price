@@ -167,11 +167,12 @@ class DetectionEngineTest {
     @Test fun gpsJitterNear30mDoesNotEndAlertEarly() {
         val e = DetectionEngine(grid(Camera(0, camLat, camLon, 80)))
         val start = camLat - 1500 / mPerDeg
-        // 남은 거리 40m 지점까지 접근 후, 한 번 3m 물러난 것처럼 흔들린 fix, 이어서 계속 접근
+        // 남은 거리 80m 지점까지 접근 후, 한 번 3m 물러난 것처럼 흔들린 fix, 이어서 계속 접근
+        // (카메라 코앞 35m 안에서는 일부러 곧바로 꺼지므로, 그보다 먼 곳에서 본다)
         var o = EngineOutput(Stage.HIDDEN, false, null, 0.0)
-        for (i in 0..73) o = e.update(fix(start + i * 20 / mPerDeg, camLon, i))
-        o = e.update(fix(start + (73 * 20 - 3) / mPerDeg, camLon, 74))   // 약 43m, 3m 되돌아감(흔들림)
-        o = e.update(fix(start + 75 * 20 / mPerDeg, camLon, 75))
+        for (i in 0..71) o = e.update(fix(start + i * 20 / mPerDeg, camLon, i))
+        o = e.update(fix(start + (71 * 20 - 3) / mPerDeg, camLon, 72))   // 약 83m, 3m 되돌아감(흔들림)
+        o = e.update(fix(start + 73 * 20 / mPerDeg, camLon, 73))
         assertEquals(Stage.S3, o.stage)
         assertNull(e.takePassed())
     }
@@ -335,6 +336,17 @@ class DetectionEngineTest {
         assertEquals(Stage.HIDDEN, out[35].stage)             // 700m
         assertEquals(Stage.HIDDEN, out[55].stage)             // 300m
         assertEquals(Stage.S3, out[74].stage)                 // 20m 전: 그래도 알린다
+    }
+
+    @Test fun alertEndsRightBeforeCamera() {
+        // 내비처럼 카메라 코앞(속도x1초+5m, 최대 35m)에 닿으면 곧바로 꺼진다. 그 전(약 60m)에는 켜져 있다.
+        val strong = pathLine(-1100.0 to 0.0, 0.0 to 0.0)
+        val e = DetectionEngine(gridWithPaths(0, strong))
+        val out = drive(e, mps = 20f, upTo = 76)             // 72km/h, i번째 남은 거리 = 1500-20i
+        assertEquals(Stage.S3, out[70].stage)                 // 100m 전
+        assertEquals(Stage.S3, out[72].stage)                 // 60m 전: 아직 켜져 있다
+        assertEquals(Stage.HIDDEN, out[76].stage)             // -20m(지나감): 꺼졌다
+        assertNotNull(e.takePassed())
     }
 
     @Test fun weakPathAlertsOnlyWithin4Seconds() {
