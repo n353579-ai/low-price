@@ -17,6 +17,8 @@ class DetectionEngine(
     private val source: CameraSource,
     /** 내가 지나며 배운 '이 카메라는 이 방향에선 반대 차선' 이면 true -> 약한 경로처럼 아주 가까울 때만 알린다 */
     private val learnedOpposite: (Camera, Double) -> Boolean = { _, _ -> false },
+    /** 사용자가 고쳐 둔 제한속도(km/h), 없으면 0 */
+    private val limitOverride: (Camera) -> Int = { 0 },
     /** 사용자가 👎로 끈 (카메라, 진행방향) 조합이면 true */
     private val blocked: (Camera, Double) -> Boolean = { _, _ -> false },
 ) {
@@ -272,8 +274,9 @@ class DetectionEngine(
             pendingCount = 1
         }
 
-        val over = confirmed == Stage.S3 && best != null && best.limit > 0 && avg > best.limit
-        last = EngineOutput(confirmed, over, if (best != null) bestD else null, avg, best?.limit ?: 0, best?.lat, best?.lon, if (best != null) bestRule else "")
+        val lim = if (best != null) (limitOverride(best).takeIf { it > 0 } ?: best.limit) else 0
+        val over = confirmed == Stage.S3 && best != null && lim > 0 && avg > lim
+        last = EngineOutput(confirmed, over, if (best != null) bestD else null, avg, lim, best?.lat, best?.lon, if (best != null) bestRule else "")
         return last
     }
 }
