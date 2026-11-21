@@ -877,6 +877,33 @@ fun SettingsScreen() {
         // 5. 최근 알림 기록 (틀린 알림 원인 확인용)
         val alertLog = remember { com.nunppong.alert.core.AlertLog.get(ctx) }
         var entries by remember { mutableStateOf(alertLog.all()) }
+        val limitFix = remember { com.nunppong.alert.core.LimitOverride.get(ctx) }
+        var limitEdit by remember { mutableStateOf<com.nunppong.alert.core.AlertEntry?>(null) }
+        var limitText by remember { mutableStateOf("") }
+        limitEdit?.let { e ->
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { limitEdit = null },
+                title = { Text("이 카메라의 실제 제한속도") },
+                text = {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = limitText,
+                        onValueChange = { limitText = it.filter { c -> c.isDigit() }.take(3) },
+                        singleLine = true,
+                        label = { Text("km/h (예: 70)") },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        limitText.toIntOrNull()?.let { if (it in 10..150) limitFix.set(e.camLat, e.camLon, it) }
+                        limitEdit = null
+                    }) { Text("저장") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { limitFix.set(e.camLat, e.camLon, 0); limitEdit = null }) { Text("원래대로") }
+                },
+            )
+        }
         val clipboard = LocalClipboardManager.current
         val fmt = remember { java.text.SimpleDateFormat("MM/dd HH:mm:ss", java.util.Locale.KOREA) }
         fun line(e: com.nunppong.alert.core.AlertEntry) =
@@ -946,6 +973,10 @@ fun SettingsScreen() {
                             } catch (_: Exception) {
                             }
                         }) { Text("지도로 보기") }
+                    }
+                    TextButton(onClick = { limitText = ""; limitEdit = e }) {
+                        val fixed = limitFix.get(e.camLat, e.camLon)
+                        Text(if (fixed > 0) "제한속도 고침: $fixed (눌러서 다시 고치기)" else "제한속도가 달라요? 고치기 (지금 ${e.limit})")
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

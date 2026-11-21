@@ -86,3 +86,30 @@ class SideLearnerTest {
         assertFalse(l.isOpposite(cam, 0.0))          // 오른쪽에 있었던 적이 많으면 풀린다
     }
 }
+
+class LimitOverrideTest {
+    @Test fun overrideChangesLimitAndOverspeed() {
+        val cam = Camera(0, 37.5, 127.0, 60)
+        val g = CameraGrid.parse(sequenceOf("G 3750 12700", "C ${cam.lat} ${cam.lon} 60 -1"))
+        fun run(over: Int): EngineOutput {
+            val e = DetectionEngine(g, limitOverride = { over })
+            var o = EngineOutput(Stage.HIDDEN, false, null, 0.0)
+            val start = 37.5 - 400 / 111194.9
+            for (i in 0..17) o = e.update(Fix(start + i * 20 / 111194.9, 127.0, 19.4f, 0f, true, i * 1000L))   // 70km/h, 약 60m 전
+            return o
+        }
+        val plain = run(0)
+        assertEquals(60, plain.limit); assertTrue(plain.overspeed)       // 70 > 60
+        val fixed = run(70)
+        assertEquals(70, fixed.limit); assertFalse(fixed.overspeed)      // 70 <= 70
+    }
+
+    @Test fun storeSetAndReset() {
+        val l = LimitOverride()
+        assertEquals(0, l.get(37.5, 127.0))
+        l.set(37.5, 127.0, 70)
+        assertEquals(70, l.get(37.5, 127.0))
+        l.set(37.5, 127.0, 0)
+        assertEquals(0, l.get(37.5, 127.0))
+    }
+}

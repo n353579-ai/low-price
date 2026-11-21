@@ -202,7 +202,8 @@ class DrivingService : Service() {
             StatusRepo.cameraCount.value = grid.count
             val feedback = CameraFeedback.get(this@DrivingService)
             val sideLearner = SideLearner.get(this@DrivingService)
-            val engine = DetectionEngine(grid, learnedOpposite = { c, h -> sideLearner.isOpposite(c, h) }, blocked = { c, h -> feedback.isBlocked(c, h) })
+            val limitFix = com.nunppong.alert.core.LimitOverride.get(this@DrivingService)
+            val engine = DetectionEngine(grid, learnedOpposite = { c, h -> sideLearner.isOpposite(c, h) }, limitOverride = { c -> limitFix.get(c.lat, c.lon) }, blocked = { c, h -> feedback.isBlocked(c, h) })
             val cb = object : LocationCallback() {
                 override fun onLocationResult(result: LocationResult) {
                     for (loc in result.locations) {
